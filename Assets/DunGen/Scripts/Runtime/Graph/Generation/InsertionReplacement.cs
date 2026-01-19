@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using DunGen.Graph.Core;
 using DunGen.Graph.Rewrite;
+using DunGen.Graph.Templates;
 
 namespace DunGen.Graph.Generation
 {
@@ -14,6 +15,7 @@ namespace DunGen.Graph.Generation
         public NodeId ParentFrom { get; }
         public NodeId ParentTo { get; }
         public SubgraphFragment Inserted { get; }
+        public CycleType InsertedType { get; }
 
         public IReadOnlyList<NodeId> InsertedNodeIds { get; }
 
@@ -21,12 +23,14 @@ namespace DunGen.Graph.Generation
             InsertionPointInstance insertion,
             NodeId parentFrom,
             NodeId parentTo,
-            SubgraphFragment inserted)
+            SubgraphFragment inserted,
+            CycleType insertedType)
         {
             Insertion = insertion;
             ParentFrom = parentFrom;
             ParentTo = parentTo;
             Inserted = inserted;
+            InsertedType = insertedType;
 
             // Cache node ids for layout convenience.
             var ids = new List<NodeId>(inserted.NewNodes.Count);

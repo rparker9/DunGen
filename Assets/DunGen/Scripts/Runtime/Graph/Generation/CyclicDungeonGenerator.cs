@@ -12,12 +12,21 @@ namespace DunGen.Graph.Generation
     {
         public DungeonGraph Graph { get; }
         public IReadOnlyList<InsertionReplacement> Replacements { get; }
+        public CycleType OverallType { get; }
+        public SubgraphFragment OverallFragment { get; } // optional but very useful
 
-        public GenerationResult(DungeonGraph graph, IReadOnlyList<InsertionReplacement> replacements)
+        public GenerationResult(
+            DungeonGraph graph,
+            IReadOnlyList<InsertionReplacement> replacements,
+            CycleType overallType,
+            SubgraphFragment overallFragment)
         {
             Graph = graph;
             Replacements = replacements;
+            OverallType = overallType;
+            OverallFragment = overallFragment;
         }
+
     }
 
     public sealed class CyclicDungeonGenerator
@@ -90,7 +99,7 @@ namespace DunGen.Graph.Generation
                     break;
 
                 // Pick and instantiate a sub-cycle
-                var subType = _selector.SelectSub(rng, ins.Depth + 1);
+                var subType = _selector.SelectSub(rng, ins.Depth + 1);  // <-- subType is already here!
                 var subTemplate = _templates.Get(subType);
 
                 // Capture the parent seam endpoints BEFORE we replace the edge.
@@ -104,7 +113,7 @@ namespace DunGen.Graph.Generation
                 _rewriter.SpliceReplaceEdge(graph, ins.SeamEdge, subFrag);
 
                 // Record the replacement for visualization/layout purposes
-                replacements.Add(new InsertionReplacement(ins, parentFrom, parentTo, subFrag));
+                replacements.Add(new InsertionReplacement(ins, parentFrom, parentTo, subFrag, subType));  // <-- ADD subType HERE
 
                 // Allow the overall-cycle rule to react to this insertion
                 // (ex: TwoKeysRule tags inserted goals as keys).
@@ -125,7 +134,7 @@ namespace DunGen.Graph.Generation
             // -----------------------------
             rule?.OnGenerationFinished(graph);
 
-            return new GenerationResult(graph, replacements);
+            return new GenerationResult(graph, replacements, overallType, overallFrag);
         }
     }
 }
