@@ -3,6 +3,29 @@ using System.Collections.Generic;
 namespace DunGen.Graph.Core
 {
     /// <summary>
+    /// What kind of gating mechanic blocks an edge.
+    /// </summary>
+    public enum GateKind
+    {
+        // Typically unlocked by a key.
+        Lock,
+
+        // Blocked by something else (rocks, debris, boss, puzzle, etc.)
+        Barrier
+    }
+
+    /// <summary>
+    /// How "strict" the gate is.
+    /// Soft vs Hard matters later when you want
+    /// more flexible pacing / optional bypasses.
+    /// </summary>
+    public enum GateStrength
+    {
+        Soft,
+        Hard
+    }
+
+    /// <summary>
     /// Optional gating data attached to an edge.
     ///
     /// Think: "This door is locked and needs Key 1"

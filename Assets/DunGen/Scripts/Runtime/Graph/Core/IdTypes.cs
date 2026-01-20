@@ -84,4 +84,20 @@ namespace DunGen.Graph.Core
         public static bool operator !=(GateId a, GateId b) => !a.Equals(b);
         public override string ToString() => $"G{Value}";
     }
+
+    /// <summary>
+    /// Identifies a specific cycle instance in the generated dungeon.
+    /// </summary>
+    public readonly struct CycleId : IEquatable<CycleId>
+    {
+        public readonly int Value;
+        public CycleId(int value) => Value = value;
+
+        public bool Equals(CycleId other) => Value == other.Value;
+        public override bool Equals(object obj) => obj is CycleId other && Equals(other);
+        public override int GetHashCode() => Value;
+        public static bool operator ==(CycleId a, CycleId b) => a.Equals(b);
+        public static bool operator !=(CycleId a, CycleId b) => !a.Equals(b);
+        public override string ToString() => $"C{Value}";
+    }
 }

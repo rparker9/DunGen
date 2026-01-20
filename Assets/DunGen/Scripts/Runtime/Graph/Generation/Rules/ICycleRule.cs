@@ -14,12 +14,12 @@ namespace DunGen.Graph.Generation.Rules
     {
         CycleType Type { get; }
 
-        void OnOverallInstantiated(DungeonGraph graph, SubgraphFragment overallFrag);
+        void OnOverallInstantiated(DungeonGraph graph, CycleInstance overall);
 
         void OnSubCycleInserted(
             DungeonGraph graph,
-            InsertionPointInstance replacedInsertion,
-            SubgraphFragment insertedFragment,
+            InsertionPoint replacedInsertion,
+            CycleInstance insertedFragment,
             Random rng);
 
         void OnGenerationFinished(DungeonGraph graph);

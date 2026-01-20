@@ -1,118 +1,73 @@
 using DunGen.Graph.Core;
+using DunGen.Graph.Templates.Core;
+using System.Collections.Generic;
 
 namespace DunGen.Graph.Templates
 {
     /// <summary>
-    /// Built-in CycleTemplate definitions that match the PDF’s diagrams.
-    ///
-    /// These are "blueprints" (templates), not the final runtime DungeonGraph.
-    /// - Graph.Core types (DungeonGraph / RoomNode / RoomEdge) are the OUTPUT graph you generate and display.
-    /// - Graph.Templates types (CycleTemplate / TemplateNode / TemplateEdge) are reusable patterns you instantiate
-    ///   into Graph.Core later.
+    /// Built-in cycle templates matching the 12 cycles from the PDF.
+    /// Currently implements: TwoAlternativePaths, TwoKeys
     /// </summary>
     public static class BuiltInTemplates
     {
-        /// <summary>
-        /// Call this once at startup to register the built-in templates into your library.
-        /// </summary>
         public static void Register(CycleTemplateLibrary lib)
         {
-            lib.Register(BuildTwoAlternativePaths());
-            lib.Register(BuildTwoKeys());
+            lib.Register(TwoAlternativePaths());
+            lib.Register(TwoKeys());
+            // TODO: Add remaining 10 cycle types
         }
 
-        /// <summary>
-        /// PDF Cycle #1: Two alternative paths.
-        ///
-        /// Diagram summary:
-        /// - Start and Goal connected by two long arcs
-        /// - Each arc represents a distinct "theme" (Theme 1 vs Theme 2)
-        /// - Each arc has a diamond insertion point where a sub-cycle can be inserted
-        /// </summary>
-        private static CycleTemplate BuildTwoAlternativePaths()
+        public static CycleTemplate TwoAlternativePaths()
         {
-            // Arcs are defined as ordered edge chains from Start -> Goal.
-            var arcTop = new TemplateArc("Theme 1", ArcLengthHint.Long);
-            var arcBottom = new TemplateArc("Theme 2", ArcLengthHint.Long);
+            var b = new CycleTemplateBuilder(CycleType.TwoAlternativePaths);
 
-            var t = new CycleTemplate(CycleType.TwoAlternativePaths, arcTop, arcBottom);
+            var start = b.AddNode(TNodeKind.Start, "Start");
+            var goal = b.AddNode(TNodeKind.Goal, "Goal");
 
-            // Template-local node IDs:
-            // 1 = Start, 2 = Goal
-            t.AddNode(1, NodeKind.Start, "Start");
-            t.AddNode(2, NodeKind.Goal, "Goal");
+            var mid1 = b.AddNode(TNodeKind.Normal, "Theme1");
+            var mid2 = b.AddNode(TNodeKind.Normal, "Theme2");
 
-            t.SetStart(new TNodeId(1));
-            t.SetGoal(new TNodeId(2));
+            // Build Arc A: start -> mid1 -> goal
+            var e1 = b.AddEdge(start, mid1, EdgeTraversal.Normal);
+            var e2 = b.AddEdge(mid1, goal, EdgeTraversal.Normal);
+            var arcA = new List<TEdgeId> { e1, e2 };
 
-            // Template-local edge IDs:
-            // 1 = top arc Start->Goal
-            // 2 = bottom arc Start->Goal
-            //
-            // NOTE: In the PDF the loop is conceptually bidirectional unless an arc is marked one-way.
-            // For MVP, arcs are represented as Start->Goal edges. If you want explicit backtracking,
-            // you can later add the reverse edges (Goal->Start) in instantiation.
-            t.AddEdge(1, from: 1, to: 2, traversal: EdgeTraversal.Normal);
-            t.AddEdge(2, from: 1, to: 2, traversal: EdgeTraversal.Normal);
+            // Build Arc B: start -> mid2 -> goal
+            var e3 = b.AddEdge(start, mid2, EdgeTraversal.Normal);
+            var e4 = b.AddEdge(mid2, goal, EdgeTraversal.Normal);
+            var arcB = new List<TEdgeId> { e3, e4 };
 
-            arcTop.EdgeChain.Add(new TEdgeId(1));
-            arcBottom.EdgeChain.Add(new TEdgeId(2));
+            // Insertion points (diamonds on each arc)
+            b.AddInsertion(e1);  // diamond on arc A
+            b.AddInsertion(e3);  // diamond on arc B
 
-            // Diamonds are insertion points.
-            // We represent an insertion point as an "edge seam": later rewriting will replace that edge with a sub-cycle.
-            //
-            // Here: one seam per arc.
-            t.AddInsertion(insertionId: 1, seamEdgeId: 1); // Diamond insertion point on Theme 1 arc
-            t.AddInsertion(insertionId: 2, seamEdgeId: 2); // Diamond insertion point on Theme 2 arc
-
-            return t;
+            return b.Build(start, goal, arcA, arcB);
         }
 
-        /// <summary>
-        /// PDF Cycle #2: Two keys.
-        ///
-        /// Diagram summary:
-        /// - Start and Goal connected by two long arcs
-        /// - Goal contains a lock (Goal (LOCK))
-        /// - Each long path contains a key (Key 1 on one arc, Key 2 on the other)
-        /// - Each arc has a diamond insertion point
-        ///
-        /// IMPORTANT MVP NOTE:
-        /// In the PDF process, the diamonds are exactly where you insert sub-cycles (wings),
-        /// and those wings typically become where each key is found.
-        /// So this base template focuses on the structure + insertion seams,
-        /// and later the generator can force “inserted sub-cycle’s goal = Key”.
-        /// </summary>
-        private static CycleTemplate BuildTwoKeys()
+        public static CycleTemplate TwoKeys()
         {
-            var arcTop = new TemplateArc("Key 1 path", ArcLengthHint.Long);
-            var arcBottom = new TemplateArc("Key 2 path", ArcLengthHint.Long);
+            var b = new CycleTemplateBuilder(CycleType.TwoKeys);
 
-            var t = new CycleTemplate(CycleType.TwoKeys, arcTop, arcBottom);
+            var start = b.AddNode(TNodeKind.Start, "Start");
+            var goal = b.AddNode(TNodeKind.Goal, "Goal (Lock)");
 
-            // 1 = Start, 2 = Goal (Lock)
-            t.AddNode(1, NodeKind.Start, "Start");
-            t.AddNode(2, NodeKind.Goal, "Goal (Lock)")
-                // Beginner hint: NodeTag is on nodes. This is not a real “Lock” system yet,
-                // but it gives the UI/generator a marker that this goal is locked.
-                .Tags.Add(new NodeTag(NodeTagKind.LockHint));
+            var keyMid1 = b.AddNode(TNodeKind.Normal, "Key1");
+            var keyMid2 = b.AddNode(TNodeKind.Normal, "Key2");
 
-            t.SetStart(new TNodeId(1));
-            t.SetGoal(new TNodeId(2));
+            // Arc A: start -> keyMid1 -> goal
+            var e1 = b.AddEdge(start, keyMid1, EdgeTraversal.Normal);
+            var e2 = b.AddEdge(keyMid1, goal, EdgeTraversal.Normal);
+            var arcA = new List<TEdgeId> { e1, e2 };
 
-            // 1 = top arc Start->Goal (Key 1 path)
-            // 2 = bottom arc Start->Goal (Key 2 path)
-            t.AddEdge(1, from: 1, to: 2, traversal: EdgeTraversal.Normal);
-            t.AddEdge(2, from: 1, to: 2, traversal: EdgeTraversal.Normal);
+            // Arc B: start -> keyMid2 -> goal
+            var e3 = b.AddEdge(start, keyMid2, EdgeTraversal.Normal);
+            var e4 = b.AddEdge(keyMid2, goal, EdgeTraversal.Normal);
+            var arcB = new List<TEdgeId> { e3, e4 };
 
-            arcTop.EdgeChain.Add(new TEdgeId(1));
-            arcBottom.EdgeChain.Add(new TEdgeId(2));
+            b.AddInsertion(e1);
+            b.AddInsertion(e3);
 
-            // Diamonds on each arc: where we will splice in sub-cycles that (typically) contain the keys.
-            t.AddInsertion(insertionId: 1, seamEdgeId: 1); // Diamond insertion point for Key 1 wing
-            t.AddInsertion(insertionId: 2, seamEdgeId: 2); // Diamond insertion point for Key 2 wing
-
-            return t;
+            return b.Build(start, goal, arcA, arcB);
         }
     }
 }

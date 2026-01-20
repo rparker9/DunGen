@@ -4,6 +4,16 @@ using System.Collections.Generic;
 namespace DunGen.Graph.Core 
 {
     /// <summary>
+    /// Structural role of a node in the dungeon (not cycle-specific).
+    /// </summary>
+    public enum NodeKind
+    {
+        Normal,
+        Entrance,  // Dungeon entrance (replaces "Start" at dungeon level)
+        Exit       // Dungeon exit (replaces "Goal" at dungeon level)
+    }
+
+    /// <summary>
     /// A node is a "room" in the *flowchart graph*, not necessarily a spatial room yet.
     ///
     /// Later, when you do spatial layout, one RoomNode could become:

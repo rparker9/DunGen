@@ -14,9 +14,9 @@ namespace DunGen.Graph.Generation.Rules
         private int _nextKeyIndex;
         private readonly List<KeyId> _spawnedKeys = new List<KeyId>();
 
-        public void OnOverallInstantiated(DungeonGraph graph, SubgraphFragment overallFrag)
+        public void OnOverallInstantiated(DungeonGraph graph, CycleInstance overall)
         {
-            _overallGoal = overallFrag.Exit;
+            _overallGoal = overall.Exit;
             _nextKeyIndex = 1;
             _spawnedKeys.Clear();
 
@@ -29,8 +29,8 @@ namespace DunGen.Graph.Generation.Rules
 
         public void OnSubCycleInserted(
             DungeonGraph graph,
-            InsertionPointInstance replacedInsertion,
-            SubgraphFragment insertedFragment,
+            InsertionPoint replacedInsertion,
+            CycleInstance inserted,
             Random rng)
         {
             // TwoKeys needs exactly two keys.
@@ -40,7 +40,7 @@ namespace DunGen.Graph.Generation.Rules
             var keyId = new KeyId(_nextKeyIndex++);
             _spawnedKeys.Add(keyId);
 
-            var keyNode = graph.GetNode(insertedFragment.Exit);
+            var keyNode = graph.GetNode(inserted.Exit);
             keyNode.Tags.Add(new NodeTag(NodeTagKind.Key, keyId.Value));
             keyNode.DebugLabel = $"Key {keyId.Value}";
         }

@@ -2,6 +2,24 @@
 namespace DunGen.Graph.Core
 {
     /// <summary>
+    /// How the player is allowed to traverse an edge.
+    /// </summary>
+    public enum EdgeTraversal
+    {
+        // Standard corridor / connection between rooms.
+        Normal,
+
+        // Only traversable in one direction.
+        // Useful for: drop-downs, slides, one-way doors, teleports, etc.
+        OneWay,
+
+        // This connection exists visually / conceptually (e.g. you can see the goal),
+        // but you cannot walk through it.
+        // Useful for: foreshadowing, locked gates you can see, windows, etc.
+        SightlineBlocked
+    }
+
+    /// <summary>
     /// A directed connection between two nodes in the flowchart graph.
     ///
     /// The graph is directed even if you *usually* treat connections as two-way,

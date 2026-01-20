@@ -1,48 +1,13 @@
 using DunGen.Graph;
 using DunGen.Graph.Core;
 using DunGen.Graph.Templates;
+using DunGen.Graph.Templates.Core;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DunGen.Graph.Rewrite
 {
-    /// <summary>
-    /// Concrete insertion seam in the *runtime graph*.
-    /// The seam is an existing edge that we will replace with an inserted subgraph.
-    /// </summary>
-    public sealed class InsertionPointInstance
-    {
-        public InsertionId Id { get; }
-        public EdgeId SeamEdge { get; }
-        public int Depth { get; }
-
-        public InsertionPointInstance(InsertionId id, EdgeId seamEdge, int depth)
-        {
-            Id = id;
-            SeamEdge = seamEdge;
-            Depth = depth;
-        }
-    }
-
-    /// <summary>
-    /// Temporary chunk of graph produced from a CycleTemplate.
-    /// </summary>
-    public sealed class SubgraphFragment
-    {
-        public NodeId Entry { get; }
-        public NodeId Exit { get; }
-
-        public List<RoomNode> NewNodes { get; } = new List<RoomNode>();
-        public List<RoomEdge> NewEdges { get; } = new List<RoomEdge>();
-        public List<InsertionPointInstance> NewInsertions { get; } = new List<InsertionPointInstance>();
-
-        public SubgraphFragment(NodeId entry, NodeId exit)
-        {
-            Entry = entry;
-            Exit = exit;
-        }
-    }
-
     public sealed class GraphRewriteEngine
     {
         private readonly IdAllocator _ids;
@@ -52,7 +17,11 @@ namespace DunGen.Graph.Rewrite
             _ids = ids;
         }
 
-        public SubgraphFragment Instantiate(CycleTemplate template, int depth)
+        public CycleInstance Instantiate(
+            CycleTemplate template,
+            int depth,
+            CycleId? parentCycleId = null,
+            InsertionId? parentInsertionId = null)
         {
             var mapNode = new Dictionary<TNodeId, NodeId>();
             var mapEdge = new Dictionary<TEdgeId, EdgeId>();
@@ -67,8 +36,9 @@ namespace DunGen.Graph.Rewrite
 
             var entry = mapNode[template.Start];
             var exit = mapNode[template.Goal];
+            var cycleId = _ids.NewCycle();  // NEW
 
-            var frag = new SubgraphFragment(entry, exit);
+            var instance = new CycleInstance(entry, exit);
 
             // Materialize nodes
             foreach (var kv in template.Nodes)
@@ -76,12 +46,30 @@ namespace DunGen.Graph.Rewrite
                 var tNode = kv.Value;
                 var id = mapNode[tNode.Id];
 
-                var node = new RoomNode(id, tNode.Kind, tNode.DebugLabel);
+                var kind = NodeKind.Normal;
+                if (depth == 0)
+                {
+                    if (tNode.Kind == TNodeKind.Start)
+                        kind = NodeKind.Entrance;
+                    else if (tNode.Kind == TNodeKind.Goal)
+                        kind = NodeKind.Exit;
+                }
+
+                var node = new RoomNode(id, kind, tNode.DebugLabel);
                 node.Tags.AddRange(tNode.Tags);
-                frag.NewNodes.Add(node);
+
+                if (tNode.Kind == TNodeKind.Start)
+                    node.Tags.Add(new NodeTag(NodeTagKind.CycleStart));
+                if (tNode.Kind == TNodeKind.Goal)
+                    node.Tags.Add(new NodeTag(NodeTagKind.CycleGoal));
+
+                instance.NewNodes.Add(node);
             }
 
-            // Materialize edges
+            // Materialize edges (tracking arc membership)
+            var arcAEdges = new List<EdgeId>();
+            var arcBEdges = new List<EdgeId>();
+
             foreach (var kv in template.Edges)
             {
                 var tEdge = kv.Value;
@@ -94,26 +82,46 @@ namespace DunGen.Graph.Rewrite
                     tEdge.Traversal);
 
                 mapEdge.Add(tEdge.Id, eid);
-                frag.NewEdges.Add(edge);
+                instance.NewEdges.Add(edge);
+
+                // NEW: Track which arc this edge belongs to
+                if (template.ArcA.Contains(tEdge.Id))
+                    arcAEdges.Add(eid);
+                else if (template.ArcB.Contains(tEdge.Id))
+                    arcBEdges.Add(eid);
             }
 
-            // Create insertion seams (diamonds) as instances referencing runtime edges
+            // Create insertion points
             foreach (var ins in template.Insertions)
             {
                 EdgeId seam;
                 if (!mapEdge.TryGetValue(ins.SeamEdge, out seam))
                     throw new InvalidOperationException("Template insertion refers to missing seam edge.");
 
-                frag.NewInsertions.Add(new InsertionPointInstance(_ids.NewInsertion(), seam, depth));
+                instance.NewInsertions.Add(
+                    new InsertionPoint(_ids.NewInsertion(), seam, depth));
             }
 
-            return frag;
+            // NEW: Build cycle info
+            instance.CycleInfo = new CycleInstanceInfo(
+                cycleId,
+                template.Type,
+                depth,
+                entry,
+                exit,
+                arcAEdges,
+                arcBEdges,
+                instance.NewInsertions,
+                parentCycleId,
+                parentInsertionId);
+
+            return instance;
         }
 
         /// <summary>
         /// Replace existing edge A->B with: A->frag.Entry ... frag.Exit->B.
         /// </summary>
-        public void SpliceReplaceEdge(DungeonGraph graph, EdgeId seamEdgeId, SubgraphFragment frag)
+        public void SpliceReplaceEdge(DungeonGraph graph, EdgeId seamEdgeId, CycleInstance frag)
         {
             var seam = graph.GetEdge(seamEdgeId);
             var a = seam.From;

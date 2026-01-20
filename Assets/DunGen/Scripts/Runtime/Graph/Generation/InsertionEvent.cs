@@ -9,21 +9,21 @@ namespace DunGen.Graph.Generation
     /// Records that a specific seam edge was replaced by an inserted fragment,
     /// including where it was attached (the parent edge endpoints) so the editor can draw nesting.
     /// </summary>
-    public sealed class InsertionReplacement
+    public sealed class InsertionEvent
     {
-        public InsertionPointInstance Insertion { get; }
+        public InsertionPoint Insertion { get; }
         public NodeId ParentFrom { get; }
         public NodeId ParentTo { get; }
-        public SubgraphFragment Inserted { get; }
+        public CycleInstance Inserted { get; }
         public CycleType InsertedType { get; }
 
         public IReadOnlyList<NodeId> InsertedNodeIds { get; }
 
-        public InsertionReplacement(
-            InsertionPointInstance insertion,
+        public InsertionEvent(
+            InsertionPoint insertion,
             NodeId parentFrom,
             NodeId parentTo,
-            SubgraphFragment inserted,
+            CycleInstance inserted,
             CycleType insertedType)
         {
             Insertion = insertion;
@@ -34,7 +34,8 @@ namespace DunGen.Graph.Generation
 
             // Cache node ids for layout convenience.
             var ids = new List<NodeId>(inserted.NewNodes.Count);
-            foreach (var n in inserted.NewNodes) ids.Add(n.Id);
+            foreach (var n in inserted.NewNodes) 
+                ids.Add(n.Id);
             InsertedNodeIds = ids;
         }
     }

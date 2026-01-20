@@ -2,28 +2,19 @@ using System;
 
 namespace DunGen.Graph.Core
 {
-    // "Kind" is the structural role of a node in the flowchart.
-    // You can have a Start node, a Goal node, and normal nodes.
-    public enum NodeKind
-    {
-        Normal,
-        Start,
-        Goal
-    }
-
     // "TagKind" describes *semantics* of a room:
     // what the player can find here, or what the room represents.
+    /// <summary>
+    /// Semantic tags that can be attached to nodes.
+    /// </summary>
     public enum NodeTagKind
     {
-        None,
+        Key,          // This node contains a key
+        LockHint,     // This node is locked/gated
 
-        // Core semantic tags you’ll likely want soon:
-        Key,         // a key pickup exists here (Data might store which key)
-        Reward,      // treasure / loot / reward
-        Danger,      // combat / hazard / risk
-        Secret,      // hidden room / optional content
-        LockHint,    // hints the player about upcoming locks
-        BarrierHint  // hints about upcoming barriers
+        // NEW: Cycle-local roles (from PDF page 2)
+        CycleStart,   // This is the "start" of its owning cycle
+        CycleGoal     // This is the "goal" of its owning cycle
     }
 
     /// <summary>

@@ -8,27 +8,6 @@ using System.Collections.Generic;
 
 namespace DunGen.Graph.Generation
 {
-    public sealed class GenerationResult
-    {
-        public DungeonGraph Graph { get; }
-        public IReadOnlyList<InsertionReplacement> Replacements { get; }
-        public CycleType OverallType { get; }
-        public SubgraphFragment OverallFragment { get; } // optional but very useful
-
-        public GenerationResult(
-            DungeonGraph graph,
-            IReadOnlyList<InsertionReplacement> replacements,
-            CycleType overallType,
-            SubgraphFragment overallFragment)
-        {
-            Graph = graph;
-            Replacements = replacements;
-            OverallType = overallType;
-            OverallFragment = overallFragment;
-        }
-
-    }
-
     public sealed class CyclicDungeonGenerator
     {
         public sealed class Settings
@@ -43,6 +22,15 @@ namespace DunGen.Graph.Generation
         private readonly GraphRewriteEngine _rewriter;
         private readonly CycleRuleRegistry _rules;
 
+        // Constructor
+
+        /// <summary>
+        /// Creates a new cyclic dungeon generator.
+        /// </summary>
+        /// <param name="templates"></param>
+        /// <param name="selector"></param>
+        /// <param name="rewriter"></param>
+        /// <param name="rules"></param>
         public CyclicDungeonGenerator(
             ICycleTemplateLibrary templates,
             ICycleSelector selector,
@@ -60,67 +48,71 @@ namespace DunGen.Graph.Generation
             var rng = new Random(s.Seed);
             var graph = new DungeonGraph();
 
-            // For visualization/layout purposes, keep track of which insertion seams
-            var replacements = new List<InsertionReplacement>();
+            // NEW: Cycle tracking structures
+            var insertionHistory = new List<InsertionEvent>();
+            var cycleRegistry = new Dictionary<CycleId, CycleInstanceInfo>();
+            var nodeToCycle = new Dictionary<NodeId, CycleId>();
+            var edgeToArc = new Dictionary<EdgeId, (CycleId, int)>();
 
-            // -----------------------------
-            // 1) Pick + instantiate overall cycle
-            // -----------------------------
+            // 1) Generate overall cycle
             var overallType = _selector.SelectOverall(rng);
             var overallTemplate = _templates.Get(overallType);
-
-            // Look up optional behavior hooks for this overall cycle type.
-            // (If no rule is registered, generation still works as a pure graph rewrite.)
             _rules.TryGet(overallType, out var rule);
 
-            var overallFrag = _rewriter.Instantiate(overallTemplate, depth: 0);
-            foreach (var n in overallFrag.NewNodes) graph.AddNode(n);
-            foreach (var e in overallFrag.NewEdges) graph.AddEdge(e);
+            var overallCycle = _rewriter.Instantiate(overallTemplate, depth: 0);
 
-            // Allow the rule to observe/annotate the overall structure (ex: mark goal as locked).
-            rule?.OnOverallInstantiated(graph, overallFrag);
+            // Add to flat graph
+            foreach (var n in overallCycle.NewNodes) graph.AddNode(n);
+            foreach (var e in overallCycle.NewEdges) graph.AddEdge(e);
 
-            // -----------------------------
-            // 2) Repeatedly replace diamond insertion seams with sub-cycles
-            // -----------------------------
-            var pending = new Queue<InsertionPointInstance>(overallFrag.NewInsertions);
+            // NEW: Register cycle info
+            RegisterCycle(overallCycle, cycleRegistry, nodeToCycle, edgeToArc);
+
+            rule?.OnOverallInstantiated(graph, overallCycle);
+
+            // 2) Replace insertion points with sub-cycles
+            var pending = new Queue<InsertionPoint>(overallCycle.NewInsertions);
             int used = pending.Count;
 
             while (pending.Count > 0)
             {
-                var ins = pending.Dequeue();
+                var insertion = pending.Dequeue();
 
-                // Depth limit: insertion at depth D produces a sub-cycle at depth D+1
-                if (ins.Depth + 1 > s.MaxDepth)
+                if (insertion.Depth + 1 > s.MaxDepth || used >= s.MaxInsertionsTotal)
                     continue;
 
-                // Budget limit
-                if (used >= s.MaxInsertionsTotal)
-                    break;
-
-                // Pick and instantiate a sub-cycle
-                var subType = _selector.SelectSub(rng, ins.Depth + 1);  // <-- subType is already here!
+                var subType = _selector.SelectSub(rng, insertion.Depth + 1);
                 var subTemplate = _templates.Get(subType);
 
-                // Capture the parent seam endpoints BEFORE we replace the edge.
-                if (!graph.Edges.TryGetValue(ins.SeamEdge, out var seam))
-                    throw new InvalidOperationException("Seam edge missing in graph: " + ins.SeamEdge);
+                if (!graph.Edges.TryGetValue(insertion.SeamEdge, out var seam))
+                    throw new InvalidOperationException("Seam edge missing: " + insertion.SeamEdge);
 
                 var parentFrom = seam.From;
                 var parentTo = seam.To;
+                var parentCycleId = nodeToCycle[parentFrom];
 
-                var subFrag = _rewriter.Instantiate(subTemplate, ins.Depth + 1);
-                _rewriter.SpliceReplaceEdge(graph, ins.SeamEdge, subFrag);
+                // Instantiate with parent tracking
+                var subCycle = _rewriter.Instantiate(
+                    subTemplate,
+                    insertion.Depth + 1,
+                    parentCycleId,
+                    insertion.Id);
 
-                // Record the replacement for visualization/layout purposes
-                replacements.Add(new InsertionReplacement(ins, parentFrom, parentTo, subFrag, subType));  // <-- ADD subType HERE
+                _rewriter.SpliceReplaceEdge(graph, insertion.SeamEdge, subCycle);
 
-                // Allow the overall-cycle rule to react to this insertion
-                // (ex: TwoKeysRule tags inserted goals as keys).
-                rule?.OnSubCycleInserted(graph, ins, subFrag, rng);
+                // NEW: Register sub-cycle
+                RegisterCycle(subCycle, cycleRegistry, nodeToCycle, edgeToArc);
 
-                // Enqueue any new diamond insert seams created by the inserted sub-cycle
-                foreach (var ni in subFrag.NewInsertions)
+                insertionHistory.Add(new InsertionEvent(
+                    insertion,
+                    parentFrom,
+                    parentTo,
+                    subCycle,
+                    subType));
+
+                rule?.OnSubCycleInserted(graph, insertion, subCycle, rng);
+
+                foreach (var ni in subCycle.NewInsertions)
                 {
                     pending.Enqueue(ni);
                     used++;
@@ -129,12 +121,45 @@ namespace DunGen.Graph.Generation
                 }
             }
 
-            // -----------------------------
-            // 3) Finalization hook (ex: attach gates, cleanup tags, etc.)
-            // -----------------------------
             rule?.OnGenerationFinished(graph);
 
-            return new GenerationResult(graph, replacements, overallType, overallFrag);
+            return new GenerationResult(
+                graph,
+                cycleRegistry,
+                nodeToCycle,
+                edgeToArc,
+                insertionHistory,
+                overallType,
+                overallCycle);
+        }
+
+        /// <summary>
+        /// Register a cycle instance into the tracking structures.
+        /// </summary>
+        /// <param name="cycle"></param>
+        /// <param name="cycleRegistry"></param>
+        /// <param name="nodeToCycle"></param>
+        /// <param name="edgeToArc"></param>
+        private void RegisterCycle(
+            CycleInstance cycle,
+            Dictionary<CycleId, CycleInstanceInfo> cycleRegistry,
+            Dictionary<NodeId, CycleId> nodeToCycle,
+            Dictionary<EdgeId, (CycleId, int)> edgeToArc)
+        {
+            var info = cycle.CycleInfo;
+            cycleRegistry[info.Id] = info;
+
+            // Map nodes to cycle
+            foreach (var n in cycle.NewNodes)
+                nodeToCycle[n.Id] = info.Id;
+
+            // Map arc A edges
+            for (int i = 0; i < info.ArcA.Count; i++)
+                edgeToArc[info.ArcA[i]] = (info.Id, 0);
+
+            // Map arc B edges
+            for (int i = 0; i < info.ArcB.Count; i++)
+                edgeToArc[info.ArcB[i]] = (info.Id, 1);
         }
     }
 }
