@@ -1,4 +1,5 @@
 using DunGen.Graph.Core;
+
 using System.Collections.Generic;
 
 namespace DunGen.Graph.Rewrite

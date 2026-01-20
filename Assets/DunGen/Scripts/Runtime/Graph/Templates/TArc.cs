@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace DunGen.Graph.Templates.Core
+namespace DunGen.Graph.Templates
 {
     /// <summary>
     /// In the PDF, arcs have a "short" vs "long" notion.

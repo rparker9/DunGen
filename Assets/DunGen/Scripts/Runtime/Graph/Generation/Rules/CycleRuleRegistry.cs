@@ -1,4 +1,5 @@
 using DunGen.Graph.Templates;
+
 using System.Collections.Generic;
 
 namespace DunGen.Graph.Generation.Rules

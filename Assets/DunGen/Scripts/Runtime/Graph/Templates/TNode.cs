@@ -1,7 +1,8 @@
 using DunGen.Graph.Core;
+
 using System.Collections.Generic;
 
-namespace DunGen.Graph.Templates.Core
+namespace DunGen.Graph.Templates
 {
     /// <summary>
     /// Node kind in TEMPLATE space (before instantiation).

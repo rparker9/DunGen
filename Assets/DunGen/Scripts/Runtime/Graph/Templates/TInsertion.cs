@@ -1,4 +1,4 @@
-namespace DunGen.Graph.Templates.Core
+namespace DunGen.Graph.Templates
 {
     public sealed class TInsertion
     {

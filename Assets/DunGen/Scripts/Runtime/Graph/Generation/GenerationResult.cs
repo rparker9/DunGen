@@ -1,9 +1,7 @@
 using DunGen.Graph.Core;
 using DunGen.Graph.Rewrite;
 using DunGen.Graph.Templates;
-using DunGen.Graph.Generation.Rules;
 
-using System;
 using System.Collections.Generic;
 
 namespace DunGen.Graph.Generation

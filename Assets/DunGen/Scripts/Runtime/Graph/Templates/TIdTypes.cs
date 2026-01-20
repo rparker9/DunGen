@@ -1,6 +1,6 @@
 using System;
 
-namespace DunGen.Graph.Templates.Core
+namespace DunGen.Graph.Templates
 {
     public readonly struct TNodeId : IEquatable<TNodeId>
     {

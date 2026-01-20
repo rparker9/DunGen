@@ -1,6 +1,6 @@
 using DunGen.Graph.Core;
 
-namespace DunGen.Graph.Templates.Core
+namespace DunGen.Graph.Templates
 {
     /// <summary>
     /// An edge inside a template blueprint.

@@ -1,6 +1,7 @@
 using DunGen.Graph.Core;
 using DunGen.Graph.Rewrite;
 using DunGen.Graph.Templates;
+
 using System;
 using System.Collections.Generic;
 

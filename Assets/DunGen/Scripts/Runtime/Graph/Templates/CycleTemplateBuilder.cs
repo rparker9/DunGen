@@ -1,5 +1,5 @@
 using DunGen.Graph.Core;
-using DunGen.Graph.Templates.Core;
+
 using System.Collections.Generic;
 
 namespace DunGen.Graph.Templates

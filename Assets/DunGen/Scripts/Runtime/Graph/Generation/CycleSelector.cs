@@ -1,5 +1,6 @@
-using System;
 using DunGen.Graph.Templates;
+
+using System;
 
 namespace DunGen.Graph.Generation
 {
