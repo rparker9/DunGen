@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,13 +8,25 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Browser window for viewing, loading, and managing cycle templates.
+    /// FULLY UPDATED: Uses JSON file system with TemplateHandle and TemplateRegistry.
     /// </summary>
     public class TemplateBrowser : EditorWindow
     {
-        private List<CycleTemplate> _templates = new List<CycleTemplate>();
         private Vector2 _scrollPos;
-        private CycleTemplate _selectedTemplate;
+        private TemplateHandle _selectedTemplate;
         private string _searchFilter = "";
+
+        // Cache for template stats to avoid repeated deserialization
+        private Dictionary<TemplateHandle, TemplateStats> _statsCache = new Dictionary<TemplateHandle, TemplateStats>();
+
+        private class TemplateStats
+        {
+            public int nodeCount;
+            public int edgeCount;
+            public int rewriteSiteCount;
+            public bool isValid;
+            public string errorMessage;
+        }
 
         [MenuItem("Tools/DunGen/Template Browser")]
         public static void ShowWindow()
@@ -69,7 +82,8 @@ namespace DunGen.Editor
 
                 GUILayout.FlexibleSpace();
 
-                EditorGUILayout.LabelField($"{_templates.Count} templates", GUILayout.Width(100));
+                var templates = TemplateRegistry.GetAll();
+                EditorGUILayout.LabelField($"{templates.Count} templates", GUILayout.Width(100));
             }
         }
 
@@ -100,29 +114,45 @@ namespace DunGen.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawTemplateItem(CycleTemplate template)
+        private void DrawTemplateItem(TemplateHandle template)
         {
             bool isSelected = template == _selectedTemplate;
 
-            Color bgColor = isSelected ? new Color(0.3f, 0.5f, 0.8f) : Color.clear;
-
             using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
             {
-                // Thumbnail
-                Texture2D thumbnail = template.thumbnail != null ? template.thumbnail : EditorGUIUtility.whiteTexture;
-                GUILayout.Label(thumbnail, GUILayout.Width(50), GUILayout.Height(50));
+                // Validation status indicator
+                var stats = GetOrCreateStats(template);
+
+                if (!stats.isValid)
+                {
+                    var prevColor = GUI.contentColor;
+                    GUI.contentColor = Color.red;
+                    GUILayout.Label("[!]", GUILayout.Width(30));
+                    GUI.contentColor = prevColor;
+                }
+                else
+                {
+                    var prevColor = GUI.contentColor;
+                    GUI.contentColor = Color.green;
+                    GUILayout.Label("[OK]", GUILayout.Width(30));
+                    GUI.contentColor = prevColor;
+                }
 
                 // Info
                 using (new EditorGUILayout.VerticalScope())
                 {
-                    EditorGUILayout.LabelField(template.templateName, EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField(template.name, EditorStyles.boldLabel);
 
-                    if (template.cycle != null)
-                    {
-                        int nodeCount = template.cycle.nodes != null ? template.cycle.nodes.Count : 0;
-                        int edgeCount = template.cycle.edges != null ? template.cycle.edges.Count : 0;
-                        EditorGUILayout.LabelField($"Nodes: {nodeCount}, Edges: {edgeCount}", EditorStyles.miniLabel);
-                    }
+                    // Show stats from cache (avoids repeated deserialization)
+                    string statsText = stats.isValid
+                        ? $"Nodes: {stats.nodeCount}, Edges: {stats.edgeCount}, Rewrites: {stats.rewriteSiteCount}"
+                        : "Invalid template";
+
+                    var style = new GUIStyle(EditorStyles.miniLabel);
+                    if (!stats.isValid)
+                        style.normal.textColor = Color.red;
+
+                    EditorGUILayout.LabelField(statsText, style);
                 }
 
                 GUILayout.FlexibleSpace();
@@ -131,7 +161,6 @@ namespace DunGen.Editor
                 if (GUILayout.Button("Select", GUILayout.Width(60)))
                 {
                     _selectedTemplate = template;
-                    Selection.activeObject = template;
                 }
             }
         }
@@ -146,7 +175,9 @@ namespace DunGen.Editor
 
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                EditorGUILayout.LabelField("Name:", _selectedTemplate.templateName);
+                EditorGUILayout.LabelField("Name:", _selectedTemplate.name);
+                EditorGUILayout.LabelField("GUID:", _selectedTemplate.guid);
+                EditorGUILayout.LabelField("File:", Path.GetFileName(_selectedTemplate.filePath));
 
                 if (!string.IsNullOrEmpty(_selectedTemplate.description))
                 {
@@ -157,15 +188,33 @@ namespace DunGen.Editor
 
                 EditorGUILayout.Space();
 
+                // Detailed stats
+                var stats = GetOrCreateStats(_selectedTemplate);
+
+                EditorGUILayout.LabelField("Nodes:", stats.nodeCount.ToString());
+                EditorGUILayout.LabelField("Edges:", stats.edgeCount.ToString());
+                EditorGUILayout.LabelField("Rewrite Sites:", stats.rewriteSiteCount.ToString());
+
+                EditorGUILayout.Space();
+
                 // Validation
-                bool isValid = _selectedTemplate.IsValid(out string errorMessage);
-                if (isValid)
+                if (stats.isValid)
                 {
-                    EditorGUILayout.HelpBox("Template is valid", MessageType.Info);
+                    EditorGUILayout.HelpBox("[OK] Template is valid", MessageType.Info);
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox($"Invalid: {errorMessage}", MessageType.Error);
+                    EditorGUILayout.HelpBox($"[!] Invalid: {stats.errorMessage}", MessageType.Error);
+                }
+
+                // Warning if edges are missing
+                if (stats.isValid && stats.edgeCount == 0 && stats.nodeCount > 2)
+                {
+                    EditorGUILayout.HelpBox(
+                        "[!] Template has nodes but no edges. This may indicate corruption. " +
+                        "Try loading and re-saving in Author Canvas.",
+                        MessageType.Warning
+                    );
                 }
 
                 EditorGUILayout.Space();
@@ -173,22 +222,9 @@ namespace DunGen.Editor
                 // Actions
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("Load in Author"))
+                    if (GUILayout.Button("Open JSON File"))
                     {
-                        LoadInAuthor(_selectedTemplate);
-                    }
-
-                    if (GUILayout.Button("Load in Preview"))
-                    {
-                        LoadInPreview(_selectedTemplate);
-                    }
-                }
-
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    if (GUILayout.Button("Ping in Project"))
-                    {
-                        EditorGUIUtility.PingObject(_selectedTemplate);
+                        EditorUtility.RevealInFinder(_selectedTemplate.filePath);
                     }
 
                     GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
@@ -197,6 +233,23 @@ namespace DunGen.Editor
                         DeleteTemplate(_selectedTemplate);
                     }
                     GUI.backgroundColor = Color.white;
+                }
+
+                // Additional actions for debugging
+                EditorGUILayout.Space();
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Refresh Stats"))
+                    {
+                        _statsCache.Remove(_selectedTemplate);
+                        Repaint();
+                    }
+
+                    if (GUILayout.Button("Validate JSON"))
+                    {
+                        ValidateTemplateJSON(_selectedTemplate);
+                    }
                 }
             }
         }
@@ -207,77 +260,175 @@ namespace DunGen.Editor
 
         private void RefreshTemplateList()
         {
-            _templates.Clear();
-
-            string[] guids = AssetDatabase.FindAssets("t:CycleTemplate");
-
-            foreach (string guid in guids)
-            {
-                string path = AssetDatabase.GUIDToAssetPath(guid);
-                var template = AssetDatabase.LoadAssetAtPath<CycleTemplate>(path);
-
-                if (template != null)
-                {
-                    _templates.Add(template);
-                }
-            }
-
-            // Sort by name
-            _templates = _templates.OrderBy(t => t.templateName).ToList();
+            _statsCache.Clear(); // Clear cache when refreshing
+            TemplateRegistry.Refresh(); // Reload registry from disk
         }
 
-        private List<CycleTemplate> GetFilteredTemplates()
+        private List<TemplateHandle> GetFilteredTemplates()
         {
-            if (string.IsNullOrEmpty(_searchFilter))
-                return _templates;
+            var allTemplates = TemplateRegistry.GetAll();
 
-            return _templates.Where(t =>
-                t.templateName.ToLower().Contains(_searchFilter.ToLower()) ||
+            if (string.IsNullOrEmpty(_searchFilter))
+                return allTemplates;
+
+            return allTemplates.Where(t =>
+                t.name.ToLower().Contains(_searchFilter.ToLower()) ||
                 (t.description != null && t.description.ToLower().Contains(_searchFilter.ToLower()))
             ).ToList();
         }
 
-        private void LoadInAuthor(CycleTemplate template)
-        {
-            var window = GetWindow<DunGenAuthorCanvas>("DunGen Author");
-            window.Focus();
-
-            // TODO: Add public method to Author Canvas to load template
-            EditorUtility.DisplayDialog("Load in Author",
-                "Use 'Load' button in Author Canvas toolbar to load this template.",
-                "OK");
-        }
-
-        private void LoadInPreview(CycleTemplate template)
-        {
-            var window = GetWindow<DunGenPreviewCanvas>("DunGen Preview");
-            window.Focus();
-
-            // TODO: Add public method to Preview Canvas to load template
-            EditorUtility.DisplayDialog("Load in Preview",
-                "Use 'Load Template' button in Preview Canvas toolbar to load this template.",
-                "OK");
-        }
-
-        private void DeleteTemplate(CycleTemplate template)
+        private void DeleteTemplate(TemplateHandle template)
         {
             if (EditorUtility.DisplayDialog(
                 "Delete Template",
-                $"Are you sure you want to delete '{template.templateName}'?\nThis cannot be undone.",
+                $"Are you sure you want to delete '{template.name}'?\nThis cannot be undone.",
                 "Delete",
                 "Cancel"))
             {
-                string path = AssetDatabase.GetAssetPath(template);
-                AssetDatabase.DeleteAsset(path);
-                AssetDatabase.Refresh();
-
-                _templates.Remove(template);
-
-                if (_selectedTemplate == template)
+                try
                 {
-                    _selectedTemplate = null;
+                    // Delete the JSON file
+                    if (File.Exists(template.filePath))
+                    {
+                        File.Delete(template.filePath);
+                        Debug.Log($"[TemplateBrowser] Deleted template file: {template.filePath}");
+
+                        // Also delete .meta file if it exists
+                        string metaPath = template.filePath + ".meta";
+                        if (File.Exists(metaPath))
+                        {
+                            File.Delete(metaPath);
+                        }
+                    }
+
+                    // Refresh registry
+                    TemplateRegistry.Refresh();
+                    _statsCache.Clear();
+
+                    if (_selectedTemplate == template)
+                    {
+                        _selectedTemplate = null;
+                    }
+
+                    AssetDatabase.Refresh();
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogError($"[TemplateBrowser] Failed to delete template: {ex.Message}");
+                    EditorUtility.DisplayDialog("Delete Failed", $"Failed to delete template:\n{ex.Message}", "OK");
                 }
             }
+        }
+
+        private void ValidateTemplateJSON(TemplateHandle template)
+        {
+            try
+            {
+                var (cycle, positions, metadata) = CycleTemplateIO.Load(template.filePath);
+
+                if (cycle == null)
+                {
+                    EditorUtility.DisplayDialog(
+                        "Validation Failed",
+                        "Failed to load template. Check console for details.",
+                        "OK"
+                    );
+                    return;
+                }
+
+                string report = $"Template: {metadata.name}\n\n" +
+                               $"Nodes: {cycle.nodes.Count}\n" +
+                               $"Edges: {cycle.edges.Count}\n" +
+                               $"Rewrite Sites: {cycle.rewriteSites.Count}\n" +
+                               $"Positions: {positions?.Count ?? 0}\n\n" +
+                               $"Start Node: {cycle.startNode?.label ?? "NULL"}\n" +
+                               $"Goal Node: {cycle.goalNode?.label ?? "NULL"}";
+
+                // Check for issues
+                List<string> issues = new List<string>();
+
+                if (cycle.edges.Count == 0 && cycle.nodes.Count > 2)
+                    issues.Add("- No edges (possible corruption)");
+
+                if (cycle.startNode == null)
+                    issues.Add("- Missing start node");
+
+                if (cycle.goalNode == null)
+                    issues.Add("- Missing goal node");
+
+                if (cycle.rewriteSites != null)
+                {
+                    foreach (var site in cycle.rewriteSites)
+                    {
+                        if (site.placeholder != null && !site.placeholder.HasRole(NodeRoleType.RewriteSite))
+                            issues.Add($"- Rewrite site '{site.placeholder.label}' missing RewriteSite role");
+                    }
+                }
+
+                if (issues.Count > 0)
+                {
+                    report += "\n\nISSUES FOUND:\n" + string.Join("\n", issues);
+                }
+                else
+                {
+                    report += "\n\n? No issues found";
+                }
+
+                EditorUtility.DisplayDialog("Template Validation", report, "OK");
+            }
+            catch (System.Exception ex)
+            {
+                EditorUtility.DisplayDialog(
+                    "Validation Error",
+                    $"Exception during validation:\n{ex.Message}",
+                    "OK"
+                );
+            }
+        }
+
+        // =========================================================
+        // STATS CACHING
+        // =========================================================
+
+        /// <summary>
+        /// Get cached stats for a template, or compute and cache if not present.
+        /// This avoids repeated deserialization which is expensive.
+        /// </summary>
+        private TemplateStats GetOrCreateStats(TemplateHandle template)
+        {
+            if (_statsCache.TryGetValue(template, out var cached))
+                return cached;
+
+            var stats = new TemplateStats();
+
+            try
+            {
+                // Load template file
+                var (cycle, positions, metadata) = CycleTemplateIO.Load(template.filePath);
+
+                if (cycle != null)
+                {
+                    stats.isValid = true;
+                    stats.nodeCount = cycle.nodes?.Count ?? 0;
+                    stats.edgeCount = cycle.edges?.Count ?? 0;
+                    stats.rewriteSiteCount = cycle.rewriteSites?.Count ?? 0;
+                }
+                else
+                {
+                    stats.isValid = false;
+                    stats.errorMessage = "Failed to load cycle data";
+                }
+            }
+            catch (System.Exception ex)
+            {
+                stats.isValid = false;
+                stats.errorMessage = ex.Message;
+            }
+
+            // Cache for next time
+            _statsCache[template] = stats;
+
+            return stats;
         }
     }
 }

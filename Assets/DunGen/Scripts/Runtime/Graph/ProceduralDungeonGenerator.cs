@@ -39,23 +39,29 @@ namespace DunGen
                 return null;
             }
 
-            // Pick random starting template
-            var rootTemplate = _settings.GetRandomTemplate(_rng);
-            if (rootTemplate == null || rootTemplate.cycle == null)
+            // Pick random starting template handle
+            var rootTemplateHandle = _settings.GetRandomTemplate(_rng);
+            if (rootTemplateHandle == null)
             {
                 Debug.LogError("[ProceduralDungeonGenerator] Failed to get root template");
                 return null;
             }
 
-            // Deep-copy the root cycle (don't modify the template!)
-            var rootCycle = DeepCopyCycle(rootTemplate.cycle);
-            _totalNodes = rootCycle.nodes != null ? rootCycle.nodes.Count : 0;
+            // Load cycle from template handle
+            var (rootCycle, _) = rootTemplateHandle.Load();
+            if (rootCycle == null)
+            {
+                Debug.LogError($"[ProceduralDungeonGenerator] Failed to load cycle from template '{rootTemplateHandle.name}'");
+                return null;
+            }
 
-            Debug.Log($"[ProceduralDungeonGenerator] Starting with template '{rootTemplate.templateName}' ({_totalNodes} nodes)");
+            // Deep-copy the root cycle (don't modify the loaded data!)
+            rootCycle = DeepCopyCycle(rootCycle);
+            _totalNodes = rootCycle.nodes != null ? rootCycle.nodes.Count : 0;
+            Debug.Log($"[ProceduralDungeonGenerator] Starting with template '{rootTemplateHandle.name}' ({_totalNodes} nodes)");
 
             // Recursively apply rewrites
             ApplyRewritesRecursive(rootCycle, 0);
-
             Debug.Log($"[ProceduralDungeonGenerator] Generation complete. Total nodes: {_totalNodes}, Depth: {_currentDepth}");
 
             return rootCycle;
@@ -104,17 +110,38 @@ namespace DunGen
                 if (_rng.NextDouble() > _settings.rewriteProbability)
                     continue;
 
-                // Pick random replacement template
-                // Choose template: prefer authored replacementTemplate if present, otherwise random.
-                var replacementTemplate = site.replacementTemplate != null
-                    ? site.replacementTemplate
-                    : _settings.GetRandomTemplate(_rng);
+                // Get replacement template handle
+                TemplateHandle replacementHandle = null;
 
-                if (replacementTemplate == null || replacementTemplate.cycle == null)
+                // Prefer authored replacement template if present
+                if (site.HasReplacementTemplate())
+                {
+                    site.EnsureTemplateLoaded(); // Load handle from GUID
+                    replacementHandle = site.replacementTemplate;
+                }
+
+                // Fall back to random template
+                if (replacementHandle == null)
+                {
+                    replacementHandle = _settings.GetRandomTemplate(_rng);
+                }
+
+                if (replacementHandle == null)
+                {
+                    Debug.LogWarning($"[ProceduralDungeonGenerator] No replacement template available for site '{site.placeholder.label}'");
                     continue;
+                }
 
-                // Deep-copy so each insertion gets unique nodes (your existing fix).
-                var replacement = DeepCopyCycle(replacementTemplate.cycle);
+                // Load cycle from template handle
+                var (replacementCycle, _) = replacementHandle.Load();
+                if (replacementCycle == null)
+                {
+                    Debug.LogWarning($"[ProceduralDungeonGenerator] Failed to load cycle from template '{replacementHandle.name}'");
+                    continue;
+                }
+
+                // Deep-copy so each insertion gets unique nodes
+                var replacement = DeepCopyCycle(replacementCycle);
 
                 // Apply the rewrite (runtime-only field now)
                 site.replacementPattern = replacement;
@@ -124,7 +151,7 @@ namespace DunGen
                 int newNodes = replacement.nodes != null ? replacement.nodes.Count : 0;
                 _totalNodes += newNodes;
 
-                Debug.Log($"[ProceduralDungeonGenerator] Depth {depth}: Applied '{replacementTemplate.templateName}' to '{site.placeholder.label}' (+{newNodes} nodes)");
+                Debug.Log($"[ProceduralDungeonGenerator] Depth {depth}: Applied '{replacementHandle.name}' to '{site.placeholder.label}' (+{newNodes} nodes)");
 
                 // Recursively rewrite the replacement
                 ApplyRewritesRecursive(replacement, depth + 1);

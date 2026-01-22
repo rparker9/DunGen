@@ -1,0 +1,114 @@
+{
+    "version": 1,
+    "metadata": {
+        "name": "TwoPaths.dungen",
+        "description": "",
+        "guid": "TwoPaths.dungen",
+        "createdTimestamp": 1769121737,
+        "modifiedTimestamp": 1769121737
+    },
+    "cycle": {
+        "nodes": [
+            {
+                "guid": "Node 0_0",
+                "label": "Node 0",
+                "roles": [
+                    "Start"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 1_1",
+                "label": "Node 1",
+                "roles": [
+                    "Goal"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 2_2",
+                "label": "Node 2",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 3_3",
+                "label": "Node 3",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            }
+        ],
+        "edges": [
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 2_2",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 2_2",
+                "toGuid": "Node 1_1",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 1_1",
+                "toGuid": "Node 3_3",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 3_3",
+                "toGuid": "Node 0_0",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            }
+        ],
+        "rewriteSites": [
+            {
+                "placeholderGuid": "Node 2_2",
+                "replacementTemplateGuid": ""
+            },
+            {
+                "placeholderGuid": "Node 3_3",
+                "replacementTemplateGuid": ""
+            }
+        ],
+        "positions": [
+            {
+                "nodeGuid": "Node 0_0",
+                "x": -99.0,
+                "y": -0.5
+            },
+            {
+                "nodeGuid": "Node 1_1",
+                "x": 100.0,
+                "y": 0.5
+            },
+            {
+                "nodeGuid": "Node 2_2",
+                "x": -2.0,
+                "y": 103.5
+            },
+            {
+                "nodeGuid": "Node 3_3",
+                "x": -5.0,
+                "y": -99.5
+            }
+        ],
+        "startNodeIndex": 0,
+        "goalNodeIndex": 1
+    }
+}

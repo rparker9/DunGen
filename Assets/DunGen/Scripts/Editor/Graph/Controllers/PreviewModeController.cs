@@ -21,7 +21,7 @@ namespace DunGen.Editor
         public PreviewModeController(float nodeRadius)
         {
             _nodeRadius = nodeRadius;
-        }
+        }   
 
         public void SetCycle(DungeonCycle cycle)
         {

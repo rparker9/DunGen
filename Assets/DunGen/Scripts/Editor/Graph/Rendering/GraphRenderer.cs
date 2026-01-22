@@ -118,11 +118,19 @@ namespace DunGen.Editor
         // EDGES
         // =========================================================
 
+        /// <summary>
+        /// Draws all edges in the graph.
+        /// </summary>
+        /// <param name="graph"></param>
+        /// <param name="positions"></param>
+        /// <param name="canvasRect"></param>
+        /// <param name="camera"></param>
         public void DrawEdges(
             FlatGraph graph,
             Dictionary<CycleNode, Vector2> positions,
             Rect canvasRect,
-            CameraController camera)
+            CameraController camera,
+            NodeStyleProvider styleProvider)
         {
             if (graph == null || graph.edges == null)
                 return;
@@ -138,17 +146,33 @@ namespace DunGen.Editor
                 if (!positions.TryGetValue(edge.to, out Vector2 toPos))
                     continue;
 
-                DrawEdge(edge, fromPos, toPos, canvasRect, camera);
+                DrawEdge(edge, fromPos, toPos, canvasRect, camera, styleProvider);
             }
         }
 
-        private void DrawEdge(CycleEdge edge, Vector2 worldFrom, Vector2 worldTo, Rect canvasRect, CameraController camera)
+        /// <summary>
+        /// Draws a single edge between two world positions.
+        /// </summary>
+        /// <param name="edge"></param>
+        /// <param name="worldFrom"></param>
+        /// <param name="worldTo"></param>
+        /// <param name="canvasRect"></param>
+        /// <param name="camera"></param>
+        private void DrawEdge(
+            CycleEdge edge, 
+            Vector2 worldFrom, 
+            Vector2 worldTo, 
+            Rect canvasRect, 
+            CameraController camera, 
+            NodeStyleProvider styleProvider)
         {
+            // Convert to screen space first
             Vector2 screenFrom = camera.WorldToScreen(worldFrom, canvasRect);
             Vector2 screenTo = camera.WorldToScreen(worldTo, canvasRect);
 
             Color edgeColor = EdgeNormalColor;
 
+            // Determine edge color based on properties
             if (edge.isBlocked)
                 edgeColor = EdgeBlockedColor;
             else if (edge.hasSightline)
@@ -156,12 +180,16 @@ namespace DunGen.Editor
             else if (edge.RequiresAnyKey())
                 edgeColor = EdgeLockedColor;
 
+            // Direction from A to B
             Vector2 dir = (screenTo - screenFrom).normalized;
-            float len = Vector2.Distance(screenFrom, screenTo);
 
-            float trim = Mathf.Clamp(18f * camera.Zoom, 10f, 28f);
+            // Trim so arrows don't overlap nodes
+            // We get the node size to determine how much to trim
+            float nodeRadius = NodeStyleProvider.NodeSize * camera.Zoom;
+            float trim = nodeRadius + 4f; // extra padding
             Vector2 lineStart = screenFrom + dir * trim;
             Vector2 lineEnd = screenTo - dir * trim;
+
 
             Handles.BeginGUI();
 
@@ -252,7 +280,6 @@ namespace DunGen.Editor
             CameraController camera,
             NodeStyleProvider styleProvider,
             DungeonCycle rootCycle,
-            float nodeRadius,
             CycleNode selectedNode)
         {
             if (graph == null || graph.nodes == null)
@@ -266,7 +293,7 @@ namespace DunGen.Editor
                 if (!positions.TryGetValue(node, out Vector2 worldPos))
                     continue;
 
-                DrawNode(node, worldPos, canvasRect, camera, styleProvider, rootCycle, nodeRadius, selectedNode);
+                DrawNode(node, worldPos, canvasRect, camera, styleProvider, rootCycle, NodeStyleProvider.NodeSize, selectedNode);
             }
         }
 

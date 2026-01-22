@@ -39,9 +39,9 @@ namespace DunGen.Editor
         public CycleNode SelectedNode => _selectedNode;
         public CycleEdge SelectedEdge => _selectedEdge;
 
-        public AuthorModeController(float nodeRadius)
+        public AuthorModeController(float radius)
         {
-            _nodeRadius = nodeRadius;
+            _nodeRadius = radius;
         }
 
         public void SetCycle(DungeonCycle cycle)
@@ -65,6 +65,14 @@ namespace DunGen.Editor
             }
         }
 
+        public void ClearCycle()
+        {
+            _cycle = null;
+            _manualPositions.Clear();
+            _selectedNode = null;
+            _selectedEdge = null;
+        }
+
         public void StartPlacingNode()
         {
             _state = AuthorState.PlacingNode;
@@ -80,13 +88,6 @@ namespace DunGen.Editor
         {
             if (_selectedNode == null || _cycle == null)
                 return;
-
-            // Don't allow deleting start or goal nodes
-            if (_selectedNode.HasRole(NodeRoleType.Start) || _selectedNode.HasRole(NodeRoleType.Goal))
-            {
-                Debug.LogWarning("Cannot delete Start or Goal nodes");
-                return;
-            }
 
             // Remove node from cycle
             _cycle.nodes.Remove(_selectedNode);

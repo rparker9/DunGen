@@ -16,7 +16,6 @@ namespace DunGen.Editor
         // =========================================================
         [System.NonSerialized] private DungeonCycle generatedCycle;
         [SerializeField] private DungeonGenerationSettings generationSettings;
-        [SerializeField] private float nodeRadius = 25.0f;
         [SerializeField] private int currentSeed;
 
         // Cached data for rendering
@@ -37,6 +36,8 @@ namespace DunGen.Editor
         private PreviewModeController _previewController;
         private PreviewInspector _inspector;
 
+        public DungeonCycle GeneratedCycle => generatedCycle;
+
         // =========================================================
         // WINDOW
         // =========================================================
@@ -53,7 +54,7 @@ namespace DunGen.Editor
             _renderer = new GraphRenderer();
             _styleProvider = new NodeStyleProvider();
 
-            _previewController = new PreviewModeController(nodeRadius);
+            _previewController = new PreviewModeController(NodeStyleProvider.NodeSize);
             _inspector = new PreviewInspector(_styleProvider);
 
             if (generatedCycle != null)
@@ -89,17 +90,6 @@ namespace DunGen.Editor
                     false,
                     GUILayout.Width(360));
 
-                GUILayout.Space(10);
-
-                float newRadius = EditorGUILayout.Slider(new GUIContent("Node Radius"), nodeRadius, 10f, 50f, GUILayout.Width(260));
-                if (!Mathf.Approximately(newRadius, nodeRadius))
-                {
-                    nodeRadius = newRadius;
-                    // Recompute layout if we already have a graph
-                    if (generatedCycle != null)
-                        RefreshCycleDisplay();
-                }
-
                 GUILayout.FlexibleSpace();
 
                 if (GUILayout.Button("Generate", EditorStyles.toolbarButton, GUILayout.Width(110)))
@@ -126,7 +116,12 @@ namespace DunGen.Editor
 
             if (_flatGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera);
+                _renderer.DrawEdges(
+                    _flatGraph, 
+                    _nodePositions, 
+                    canvasRect, 
+                    _camera, 
+                    _styleProvider);
                 _renderer.DrawNodes(
                     _flatGraph,
                     _nodePositions,
@@ -134,7 +129,6 @@ namespace DunGen.Editor
                     _camera,
                     _styleProvider,
                     generatedCycle,
-                    nodeRadius,
                     _previewController.SelectedNode);
             }
             else if (generatedCycle != null)
@@ -202,6 +196,7 @@ namespace DunGen.Editor
         // =========================================================
         // ACTIONS
         // =========================================================
+
         private void GenerateProcedural()
         {
             if (generationSettings == null)
@@ -271,20 +266,20 @@ namespace DunGen.Editor
             _nodePositions.Clear();
             _cycleBounds = new List<GraphLayoutEngine.CycleVisualBounds>();
 
-            var positions = GraphLayoutEngine.ComputeLayout(generatedCycle, nodeRadius, out _cycleBounds);
+            var positions = GraphLayoutEngine.ComputeLayout(generatedCycle, NodeStyleProvider.NodeSize);
 
             // If layout returns nothing (e.g., missing replacementPattern links), fallback to circle
             if (positions == null || positions.Count == 0)
             {
                 Debug.LogWarning("[Preview] Hierarchical ComputeLayout returned 0 positions; using circle fallback.");
-                positions = ComputeCircleFallback(_flatGraph, nodeRadius);
+                positions = ComputeCircleFallback(_flatGraph, NodeStyleProvider.NodeSize);
             }
 
             // Make sure every flattened node has a position; if not, place missing ones on an outer ring.
             foreach (var kv in positions)
                 _nodePositions[kv.Key] = kv.Value;
 
-            EnsureAllFlatNodesHavePositions(_flatGraph, _nodePositions, nodeRadius);
+            EnsureAllFlatNodesHavePositions(_flatGraph, _nodePositions, NodeStyleProvider.NodeSize);
 
             Debug.Log($"[Preview] Computed {_nodePositions.Count} positions");
         }
@@ -360,9 +355,9 @@ namespace DunGen.Editor
             if (_nodePositions.Count == 0)
                 return;
 
-            var bounds = CameraController.CalculateWorldBounds(_nodePositions, nodeRadius);
+            var bounds = CameraController.CalculateWorldBounds(_nodePositions, NodeStyleProvider.NodeSize);
             var canvasSize = new Vector2(position.width - 320f, position.height - 36f);
-            _camera.FitToBounds(bounds, canvasSize, padding: nodeRadius * 2f);
+            _camera.FitToBounds(bounds, canvasSize, padding: NodeStyleProvider.NodeSize * 2f);
         }
 
         private void ResetView()

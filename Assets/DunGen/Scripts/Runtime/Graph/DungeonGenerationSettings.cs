@@ -6,14 +6,11 @@ namespace DunGen
     /// <summary>
     /// Settings for procedural dungeon generation.
     /// Controls how cycles are randomly assembled and nested.
+    /// FIXED: Uses TemplateRegistry instead of local pool.
     /// </summary>
     [CreateAssetMenu(fileName = "DungeonGenSettings", menuName = "DunGen/Generation Settings", order = 2)]
     public class DungeonGenerationSettings : ScriptableObject
     {
-        [Header("Template Registry")]
-        [Tooltip("Pool of cycle templates to choose from during generation")]
-        public List<CycleTemplate> templatePool = new List<CycleTemplate>();
-
         [Header("Rewrite Depth")]
         [Tooltip("Maximum nesting depth for cycle rewrites (0 = no rewrites, 1 = one level, etc.)")]
         [Range(0, 5)]
@@ -43,24 +40,30 @@ namespace DunGen
         public int maxNodes = 50;
 
         /// <summary>
-        /// Get a random template from the pool
+        /// Get a random template from the registry
         /// </summary>
-        public CycleTemplate GetRandomTemplate(System.Random rng)
+        public TemplateHandle GetRandomTemplate(System.Random rng)
         {
-            if (templatePool == null || templatePool.Count == 0)
+            // Get templates from registry (always fresh)
+            var templates = TemplateRegistry.GetAll();
+
+            if (templates == null || templates.Count == 0)
+            {
+                Debug.LogError("[DungeonGenerationSettings] No templates available in registry!");
                 return null;
+            }
 
             switch (selectionMode)
             {
                 case TemplateSelectionMode.Random:
-                    return templatePool[rng.Next(templatePool.Count)];
+                    return templates[rng.Next(templates.Count)];
 
                 case TemplateSelectionMode.Sequential:
                     // Simple round-robin (stateless, based on call count)
-                    return templatePool[rng.Next(templatePool.Count)];
+                    return templates[rng.Next(templates.Count)];
 
                 default:
-                    return templatePool[0];
+                    return templates[0];
             }
         }
 
@@ -69,9 +72,12 @@ namespace DunGen
         /// </summary>
         public bool IsValid(out string errorMessage)
         {
-            if (templatePool == null || templatePool.Count == 0)
+            // Check registry instead of local pool
+            var templates = TemplateRegistry.GetAll();
+
+            if (templates == null || templates.Count == 0)
             {
-                errorMessage = "Template pool is empty. Add at least one cycle template.";
+                errorMessage = "Template registry is empty. Create at least one cycle template in Author Canvas.";
                 return false;
             }
 

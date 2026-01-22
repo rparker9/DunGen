@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -14,7 +16,6 @@ namespace DunGen.Editor
         // DATA
         // =========================================================
         [System.NonSerialized] private DungeonCycle currentTemplate;
-        [SerializeField] private float nodeRadius = 25.0f;
 
         // Cached data
         private FlatGraph _flatGraph;
@@ -45,8 +46,8 @@ namespace DunGen.Editor
 
         private void OnEnable()
         {
-            _inspector = new AuthorInspector(_styleProvider);
-            _authorController = new AuthorModeController(nodeRadius);
+            _inspector = new AuthorInspector();
+            _authorController = new AuthorModeController(NodeStyleProvider.NodeSize);
 
             // Create empty template if none exists
             if (currentTemplate == null)
@@ -96,7 +97,7 @@ namespace DunGen.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUILayout.LabelField("?? AUTHOR MODE", EditorStyles.boldLabel, GUILayout.Width(150));
+                EditorGUILayout.LabelField("AUTHOR MODE", EditorStyles.boldLabel, GUILayout.Width(150));
 
                 GUILayout.Space(10);
 
@@ -166,9 +167,9 @@ namespace DunGen.Editor
             // Draw graph
             if (_flatGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera);
+                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider);
                 _renderer.DrawNodes(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider,
-                    currentTemplate, nodeRadius, _authorController.SelectedNode);
+                    currentTemplate, _authorController.SelectedNode);
             }
 
             // Draw author overlays (placement preview, connection line, etc.)
@@ -233,11 +234,29 @@ namespace DunGen.Editor
 
         private void CreateNewTemplate()
         {
-            // Create empty cycle with just start and goal
+            // Clear existing template if it exists
+            if (currentTemplate != null)
+            {
+                currentTemplate.nodes.Clear();
+                currentTemplate.edges.Clear();
+                currentTemplate.rewriteSites.Clear();
+                currentTemplate.startNode = null;
+                currentTemplate.goalNode = null;
+            }
+
+            // Clear visual data
+            _nodePositions.Clear();
+            _flatGraph = null;
+
+            // Create fresh empty cycle
             currentTemplate = new DungeonCycle();
 
+            // Initialize controller with empty cycle
             _authorController.SetCycle(currentTemplate);
+
             ResetView();
+
+            Debug.Log("[CreateNewTemplate] Created new empty template");
         }
 
         private void SaveTemplate()
@@ -255,30 +274,56 @@ namespace DunGen.Editor
                 return;
             }
 
-            // CRITICAL: Strip replacement patterns from source BEFORE saving
-            // (in case this template was used in Preview mode)
+            // CRITICAL: Strip replacement patterns BEFORE saving
             StripReplacementPatternsFromCycle(currentTemplate);
 
-            string path = EditorUtility.SaveFilePanelInProject(
+            // Get template name from user
+            string templateName = EditorUtility.SaveFilePanel(
                 "Save Cycle Template",
-                "CycleTemplate",
-                "asset",
-                "Save cycle template as asset"
+                TemplateRegistry.TEMPLATES_FOLDER,
+                "NewTemplate",
+                "json"
             );
 
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(templateName))
                 return;
 
-            // Create template asset
+            // Ensure it ends with .dungen.json
+            if (!templateName.EndsWith(TemplateRegistry.FILE_EXTENSION))
+            {
+                templateName = Path.ChangeExtension(templateName, null) + TemplateRegistry.FILE_EXTENSION;
+            }
+
+            // Get positions
             var positions = _authorController.GetNodePositions();
-            var template = CycleTemplate.CreateFromCycle(currentTemplate, positions);
 
-            // Save as asset
-            AssetDatabase.CreateAsset(template, path);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
+            // Save using JSON system (NO circular dependency!)
+            bool success = CycleTemplateIO.Save(
+                templateName,
+                currentTemplate,
+                positions,
+                Path.GetFileNameWithoutExtension(templateName),
+                "" // description
+            );
 
-            EditorUtility.DisplayDialog("Save Successful", $"Template saved to:\n{path}", "OK");
+            if (success)
+            {
+                // Refresh registry
+                TemplateRegistry.Refresh();
+
+                EditorUtility.DisplayDialog(
+                    "Save Successful",
+                    $"Template saved to:\n{templateName}\n\n" +
+                    $"Nodes: {currentTemplate.nodes.Count}\n" +
+                    $"Edges: {currentTemplate.edges.Count}\n" +
+                    $"Rewrite sites: {currentTemplate.rewriteSites.Count}",
+                    "OK"
+                );
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Save Failed", "Check console for errors", "OK");
+            }
         }
 
         /// <summary>
@@ -293,12 +338,11 @@ namespace DunGen.Editor
             {
                 if (site != null)
                 {
+                    // Recursively strip nested first
                     if (site.replacementPattern != null)
                     {
-                        // Recursively strip nested first
                         StripReplacementPatternsFromCycle(site.replacementPattern);
-                        // Then null it out
-                        site.replacementPattern = null;
+                        site.replacementPattern = null; // Then null it out
                     }
                 }
             }
@@ -306,72 +350,79 @@ namespace DunGen.Editor
 
         private void LoadTemplate()
         {
-            string path = EditorUtility.OpenFilePanel(
+            // Prompt user to select file FIRST (before clearing)
+            string filePath = EditorUtility.OpenFilePanel(
                 "Load Cycle Template",
-                "Assets",
-                "asset"
+                TemplateRegistry.TEMPLATES_FOLDER,
+                "json"
             );
 
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(filePath))
                 return;
 
-            // Convert absolute path to relative asset path
-            if (path.StartsWith(Application.dataPath))
-            {
-                path = "Assets" + path.Substring(Application.dataPath.Length);
-            }
+            // Load using JSON system
+            var (loadedCycle, loadedPositions, metadata) = CycleTemplateIO.Load(filePath);
 
-            // Load the template asset
-            var template = AssetDatabase.LoadAssetAtPath<CycleTemplate>(path);
-
-            if (template == null)
+            if (loadedCycle == null)
             {
-                EditorUtility.DisplayDialog("Load Failed", "Could not load template asset", "OK");
+                EditorUtility.DisplayDialog("Load Failed", "Failed to load template. Check console for errors.", "OK");
                 return;
             }
 
-            // Validate template
-            if (!template.IsValid(out string errorMessage))
+            Debug.Log($"[LoadTemplate] Loaded cycle with {loadedCycle.nodes.Count} nodes, " +
+                      $"{loadedCycle.edges.Count} edges, {loadedCycle.rewriteSites.Count} rewrite sites");
+
+            // NOW clear everything (after successful load)
+            if (currentTemplate != null)
             {
-                EditorUtility.DisplayDialog("Load Failed", $"Invalid template:\n{errorMessage}", "OK");
-                return;
+                currentTemplate.nodes.Clear();
+                currentTemplate.edges.Clear();
+                currentTemplate.rewriteSites.Clear();
+                currentTemplate.startNode = null;
+                currentTemplate.goalNode = null;
             }
 
-            // Load cycle and positions
-            currentTemplate = template.cycle;
+            _nodePositions.Clear();
+            _flatGraph = null;
 
-            UnityEngine.Debug.Log($"[LoadTemplate] Loaded cycle with {currentTemplate.nodes.Count} nodes");
+            // Set as current template
+            currentTemplate = loadedCycle;
 
-            // Set cycle first (initializes all nodes to zero)
+            // Initialize controller with the loaded cycle
             _authorController.SetCycle(currentTemplate);
 
-            // Restore positions by matching node labels
-            var savedPositions = template.GetPositionsDictionary();
-            var controllerPositions = _authorController.GetNodePositions();
-
-            UnityEngine.Debug.Log($"[LoadTemplate] Saved positions: {savedPositions.Count}, Controller positions: {controllerPositions.Count}");
-
-            // Match saved positions to current node objects by label
-            int matchedCount = 0;
-            foreach (var savedEntry in savedPositions)
+            // Apply loaded positions
+            if (loadedPositions != null && loadedPositions.Count > 0)
             {
-                foreach (var controllerNode in controllerPositions.Keys)
+                var controllerPositions = _authorController.GetNodePositions();
+
+                // Direct copy - keys are the same objects!
+                foreach (var kvp in loadedPositions)
                 {
-                    if (controllerNode != null &&
-                        savedEntry.Key != null &&
-                        controllerNode.label == savedEntry.Key.label)
+                    if (kvp.Key != null && controllerPositions.ContainsKey(kvp.Key))
                     {
-                        UnityEngine.Debug.Log($"[LoadTemplate] Matched '{controllerNode.label}' -> {savedEntry.Value}");
-                        controllerPositions[controllerNode] = savedEntry.Value;
-                        matchedCount++;
-                        break;
+                        controllerPositions[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                Debug.Log($"[LoadTemplate] Applied {loadedPositions.Count} positions");
+            }
+
+            // Verify rewrite sites
+            if (currentTemplate.rewriteSites != null)
+            {
+                foreach (var site in currentTemplate.rewriteSites)
+                {
+                    if (site != null && site.placeholder != null)
+                    {
+                        bool hasRole = site.placeholder.HasRole(NodeRoleType.RewriteSite);
+                        Debug.Log($"[LoadTemplate] Rewrite site '{site.placeholder.label}': HasRole={hasRole}");
                     }
                 }
             }
 
-            UnityEngine.Debug.Log($"[LoadTemplate] Matched {matchedCount} of {savedPositions.Count} positions");
-
             ResetView();
+
             EditorApplication.delayCall += () =>
             {
                 if (this != null)
@@ -380,6 +431,16 @@ namespace DunGen.Editor
                     Repaint();
                 }
             };
+
+            EditorUtility.DisplayDialog(
+                "Load Successful",
+                $"Loaded template '{metadata.name}'\n\n" +
+                $"Nodes: {currentTemplate.nodes.Count}\n" +
+                $"Edges: {currentTemplate.edges.Count}\n" +
+                $"Rewrite sites: {currentTemplate.rewriteSites.Count}\n" +
+                $"Positions: {loadedPositions?.Count ?? 0}",
+                "OK"
+            );
         }
 
         // =========================================================
@@ -405,13 +466,13 @@ namespace DunGen.Editor
             if (_nodePositions.Count == 0)
                 return;
 
-            Rect bounds = CameraController.CalculateWorldBounds(_nodePositions, nodeRadius);
+            Rect bounds = CameraController.CalculateWorldBounds(_nodePositions, NodeStyleProvider.NodeSize);
             Vector2 canvasSize = new Vector2(
                 position.width - 260f,
                 position.height - EditorStyles.toolbar.fixedHeight
             );
 
-            float padding = nodeRadius * 2f + 30f;
+            float padding = NodeStyleProvider.NodeSize * 2f + 30f;
             _camera.FitToBounds(bounds, canvasSize, padding);
         }
     }

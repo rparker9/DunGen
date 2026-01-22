@@ -23,6 +23,9 @@ namespace DunGen.Editor
         // Slot marker alpha (subcycle start/goal)
         private const float SlotAlpha = 0.35f;
 
+        // Node size
+        public const float NodeSize = 25f;
+
         // =========================================================
         // DEPTH TRACKING
         // =========================================================

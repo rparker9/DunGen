@@ -23,31 +23,6 @@ namespace DunGen
         /// <summary>
         /// Create an empty cycle (for manual authoring)
         /// </summary>
-        public DungeonCycle()
-        {
-            CreateEmptyStructure();
-        }
-
-        /// <summary>
-        /// Create a basic cycle with just start and goal nodes
-        /// </summary>
-        private void CreateEmptyStructure()
-        {
-            nodes.Clear();
-            edges.Clear();
-            rewriteSites.Clear();
-
-            // Create start node
-            startNode = new CycleNode();
-            startNode.label = "START";
-            startNode.AddRole(NodeRoleType.Start);
-            nodes.Add(startNode);
-
-            // Create goal node
-            goalNode = new CycleNode();
-            goalNode.label = "GOAL";
-            goalNode.AddRole(NodeRoleType.Goal);
-            nodes.Add(goalNode);
-        }
+        public DungeonCycle() { }
     }
 }

@@ -6,18 +6,21 @@ namespace DunGen
     /// <summary>
     /// A rewrite site: a placeholder node that can be rewritten by inserting a subcycle.
     ///
-    /// Serialization rules:
-    /// - replacementTemplate IS serialized (asset reference, safe).
-    /// - replacementPattern is NOT serialized (runtime-only), prevents Unity depth-limit cycles.
+    /// UPDATED: Uses TemplateHandle instead of ScriptableObject reference.
     /// </summary>
     [Serializable]
     public sealed class RewriteSite
     {
         public CycleNode placeholder;
 
-        [Tooltip("Asset template to use when rewriting this site (serialized, safe).")]
-        public CycleTemplate replacementTemplate;
+        // Template GUID (used during serialization)
+        public string replacementTemplateGuid;
 
+        // Cached handle (loaded from GUID)
+        [NonSerialized]
+        public TemplateHandle replacementTemplate;
+
+        // Runtime replacement (populated during generation)
         [NonSerialized]
         public DungeonCycle replacementPattern;
 
@@ -26,8 +29,45 @@ namespace DunGen
             this.placeholder = placeholder;
         }
 
-        public bool HasReplacementTemplate() => replacementTemplate != null && replacementTemplate.cycle != null;
+        /// <summary>
+        /// Check if this site has a template assigned.
+        /// </summary>
+        public bool HasReplacementTemplate()
+        {
+            return !string.IsNullOrEmpty(replacementTemplateGuid);
+        }
 
-        public bool HasReplacementPattern() => replacementPattern != null;
+        /// <summary>
+        /// Check if this site has a runtime pattern (generated).
+        /// </summary>
+        public bool HasReplacementPattern()
+        {
+            return replacementPattern != null;
+        }
+
+        /// <summary>
+        /// Load the template handle if not already loaded.
+        /// </summary>
+        public void EnsureTemplateLoaded()
+        {
+            if (replacementTemplate == null && !string.IsNullOrEmpty(replacementTemplateGuid))
+            {
+                replacementTemplate = TemplateRegistry.GetByGuid(replacementTemplateGuid);
+
+                if (replacementTemplate == null)
+                {
+                    Debug.LogWarning($"[RewriteSite] Could not find template with GUID: {replacementTemplateGuid}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Set the replacement template (updates GUID).
+        /// </summary>
+        public void SetReplacementTemplate(TemplateHandle template)
+        {
+            replacementTemplate = template;
+            replacementTemplateGuid = template?.guid;
+        }
     }
 }
