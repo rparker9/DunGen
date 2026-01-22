@@ -27,16 +27,14 @@ namespace DunGen.Editor
         private CycleNode _selectedNode;
         private CycleEdge _selectedEdge;
 
-        // State machine
-        private AuthorState _state = AuthorState.Idle;
+        // Dragging/connecting state
         private CycleNode _draggedNode;
         private CycleNode _connectFromNode;
         private Vector2 _dragStartMousePos;
         private Vector2 _dragStartNodePos;
 
-        // Node creation
-        private CycleType _nodeTypeToPlace = CycleType.TwoAlternativePaths;
-        private bool _showNodeCreationMenu = false;
+        // State machine
+        private AuthorState _state = AuthorState.Idle;
 
         public CycleNode SelectedNode => _selectedNode;
         public CycleEdge SelectedEdge => _selectedEdge;
@@ -50,23 +48,25 @@ namespace DunGen.Editor
         {
             _cycle = cycle;
 
-            // If cycle already has nodes but no manual positions, initialize them
+            // Clear old positions from previous cycle
+            _manualPositions.Clear();
+
+            // Initialize positions for new cycle nodes
             if (_cycle != null && _cycle.nodes != null)
             {
                 foreach (var node in _cycle.nodes)
                 {
-                    if (node != null && !_manualPositions.ContainsKey(node))
+                    if (node != null)
                     {
-                        // Place nodes in a default layout if not manually positioned
+                        // Place nodes at origin initially (will be overridden by loaded positions)
                         _manualPositions[node] = Vector2.zero;
                     }
                 }
             }
         }
 
-        public void StartPlacingNode(CycleType type = CycleType.TwoAlternativePaths)
+        public void StartPlacingNode()
         {
-            _nodeTypeToPlace = type;
             _state = AuthorState.PlacingNode;
         }
 
@@ -328,7 +328,7 @@ namespace DunGen.Editor
             if (_cycle == null)
                 return;
 
-            var newNode = new CycleNode(_nodeTypeToPlace);
+            var newNode = new CycleNode();
             newNode.label = $"Node {_cycle.nodes.Count}";
 
             _cycle.nodes.Add(newNode);

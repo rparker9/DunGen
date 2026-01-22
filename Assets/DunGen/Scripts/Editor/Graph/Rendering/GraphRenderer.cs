@@ -362,7 +362,7 @@ namespace DunGen.Editor
             float arcPerKey = (Mathf.PI * 2f) / maxKeys; // 45 degrees per key slot
 
             // Start at top (90 degrees / PI/2) and go clockwise
-            float startAngle = Mathf.PI * 0.5f;
+            float startAngle = Mathf.PI * -0.5f;
 
             Handles.BeginGUI();
 
@@ -375,7 +375,7 @@ namespace DunGen.Editor
                 float angle = startAngle - (i * arcPerKey);
 
                 // Position on circle edge (slightly outside the node circle)
-                float keyRadius = screenRadius + iconSize * 1.5f;
+                float keyRadius = screenRadius + iconSize * 0.5f;
                 Vector2 keyPos = screenPos + new Vector2(
                     Mathf.Cos(angle) * keyRadius,
                     Mathf.Sin(angle) * keyRadius
@@ -402,7 +402,15 @@ namespace DunGen.Editor
                 labelStyle.normal.textColor = Color.black;
 
                 string keyText = $"K{keyId}";
-                var labelRect = new Rect(keyPos.x - 12f, keyPos.y - 18f, 24f, 14f);
+
+                // Draw label at center of key icon
+                var labelRect = new Rect(
+                    keyPos.x - iconSize * 0.6f,
+                    keyPos.y - iconSize * 0.6f,
+                    iconSize * 1.2f,
+                    iconSize * 1.2f
+                );
+
                 GUI.Label(labelRect, keyText, labelStyle);
 
                 Handles.BeginGUI();

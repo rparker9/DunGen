@@ -116,7 +116,6 @@ namespace DunGen.Editor
                 using (new EditorGUILayout.VerticalScope())
                 {
                     EditorGUILayout.LabelField(template.templateName, EditorStyles.boldLabel);
-                    EditorGUILayout.LabelField($"Type: {template.cycleType}");
 
                     if (template.cycle != null)
                     {
@@ -148,7 +147,6 @@ namespace DunGen.Editor
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 EditorGUILayout.LabelField("Name:", _selectedTemplate.templateName);
-                EditorGUILayout.LabelField("Type:", _selectedTemplate.cycleType.ToString());
 
                 if (!string.IsNullOrEmpty(_selectedTemplate.description))
                 {
@@ -235,7 +233,6 @@ namespace DunGen.Editor
 
             return _templates.Where(t =>
                 t.templateName.ToLower().Contains(_searchFilter.ToLower()) ||
-                t.cycleType.ToString().ToLower().Contains(_searchFilter.ToLower()) ||
                 (t.description != null && t.description.ToLower().Contains(_searchFilter.ToLower()))
             ).ToList();
         }

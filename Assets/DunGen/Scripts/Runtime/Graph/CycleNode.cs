@@ -7,8 +7,6 @@ namespace DunGen
     [System.Serializable]
     public class CycleNode
     {
-        public CycleType cycleType;
-
         // Presentation only (editor)
         public string label = "";
 
@@ -18,9 +16,9 @@ namespace DunGen
         // KEYS: Keys granted when this node is visited/completed
         public List<int> grantedKeys = new List<int>();
 
-        public CycleNode(CycleType type)
+        public CycleNode()
         {
-            cycleType = type;
+            // Empty constructor for manual authoring
         }
 
         // ---------- role helpers ----------

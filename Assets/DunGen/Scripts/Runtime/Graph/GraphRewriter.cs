@@ -69,17 +69,23 @@ namespace DunGen
                 return;
 
             // Add all replacement nodes (except those already present)
-            foreach (var node in replacement.nodes)
+            if (replacement.nodes != null)
             {
-                if (node != null && !nodes.Contains(node))
-                    nodes.Add(node);
+                foreach (var node in replacement.nodes)
+                {
+                    if (node != null && !nodes.Contains(node))
+                        nodes.Add(node);
+                }
             }
 
             // Add all replacement edges (except those already present)
-            foreach (var edge in replacement.edges)
+            if (replacement.edges != null)
             {
-                if (edge != null && !edges.Contains(edge))
-                    edges.Add(edge);
+                foreach (var edge in replacement.edges)
+                {
+                    if (edge != null && !edges.Contains(edge))
+                        edges.Add(edge);
+                }
             }
 
             // Find all edges connected to the placeholder

@@ -1,0 +1,158 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba810f32dd9cd3d48bbff7d4da62d6ca, type: 3}
+  m_Name: TwoPaths
+  m_EditorClassIdentifier: Assembly-CSharp::DunGen.CycleTemplate
+  templateName: New Template
+  description: 
+  cycle:
+    startNode:
+      label: START
+      roles:
+      - type: 0
+      grantedKeys: 
+    goalNode:
+      label: GOAL
+      roles:
+      - type: 1
+      grantedKeys: 
+    nodes:
+    - label: START
+      roles:
+      - type: 0
+      grantedKeys: 
+    - label: GOAL
+      roles:
+      - type: 1
+      grantedKeys: 
+    - label: Node 2
+      roles: []
+      grantedKeys: 
+    - label: Node 3
+      roles: []
+      grantedKeys: 
+    edges:
+    - from:
+        label: START
+        roles:
+        - type: 0
+        grantedKeys: 
+      to:
+        label: Node 2
+        roles: []
+        grantedKeys: 
+      bidirectional: 1
+      isBlocked: 0
+      hasSightline: 0
+      requiredKeys: 
+    - from:
+        label: Node 2
+        roles: []
+        grantedKeys: 
+      to:
+        label: GOAL
+        roles:
+        - type: 1
+        grantedKeys: 
+      bidirectional: 1
+      isBlocked: 0
+      hasSightline: 0
+      requiredKeys: 
+    - from:
+        label: GOAL
+        roles:
+        - type: 1
+        grantedKeys: 
+      to:
+        label: Node 3
+        roles: []
+        grantedKeys: 
+      bidirectional: 1
+      isBlocked: 0
+      hasSightline: 0
+      requiredKeys: 
+    - from:
+        label: Node 3
+        roles: []
+        grantedKeys: 
+      to:
+        label: START
+        roles:
+        - type: 0
+        grantedKeys: 
+      bidirectional: 1
+      isBlocked: 0
+      hasSightline: 0
+      requiredKeys: 
+    rewriteSites:
+    - placeholder:
+        label: Node 2
+        roles: []
+        grantedKeys: 
+      replacementPattern:
+        startNode:
+          label: START
+          roles:
+          - type: 0
+          grantedKeys: 
+        goalNode:
+          label: GOAL
+          roles:
+          - type: 1
+          grantedKeys: 
+        nodes:
+        - label: START
+          roles:
+          - type: 0
+          grantedKeys: 
+        - label: GOAL
+          roles:
+          - type: 1
+          grantedKeys: 
+        edges: []
+        rewriteSites: []
+    - placeholder:
+        label: Node 3
+        roles: []
+        grantedKeys: 
+      replacementPattern:
+        startNode:
+          label: START
+          roles:
+          - type: 0
+          grantedKeys: 
+        goalNode:
+          label: GOAL
+          roles:
+          - type: 1
+          grantedKeys: 
+        nodes:
+        - label: START
+          roles:
+          - type: 0
+          grantedKeys: 
+        - label: GOAL
+          roles:
+          - type: 1
+          grantedKeys: 
+        edges: []
+        rewriteSites: []
+  authorPositions:
+  - nodeId: START
+    position: {x: -100, y: -1.5}
+  - nodeId: GOAL
+    position: {x: 100, y: -1.5}
+  - nodeId: Node 2
+    position: {x: -1, y: 48.5}
+  - nodeId: Node 3
+    position: {x: 0, y: -50.5}
+  thumbnail: {fileID: 0}

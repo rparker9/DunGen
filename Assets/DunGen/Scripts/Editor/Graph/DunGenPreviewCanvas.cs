@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
 
@@ -13,12 +14,10 @@ namespace DunGen.Editor
         // =========================================================
         // DATA
         // =========================================================
-        [SerializeField] private DungeonCycle generatedCycle;
+        [System.NonSerialized] private DungeonCycle generatedCycle;
+        [SerializeField] private DungeonGenerationSettings generationSettings;
         [SerializeField] private float nodeRadius = 25.0f;
         [SerializeField] private int currentSeed;
-
-        // UI state
-        private CycleType _selectedCycleType = CycleType.TwoAlternativePaths;
 
         // Cached data
         private RewrittenGraph _flatGraph;
@@ -54,7 +53,7 @@ namespace DunGen.Editor
 
             // Generate initial dungeon if none exists
             if (generatedCycle == null)
-                GenerateNewDungeon();
+                GenerateWithNewSeed();
             else
                 _previewController.SetCycle(generatedCycle);
         }
@@ -100,30 +99,37 @@ namespace DunGen.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUILayout.LabelField("PREVIEW MODE", EditorStyles.boldLabel, GUILayout.Width(150));
+                EditorGUILayout.LabelField("??? PREVIEW MODE", EditorStyles.boldLabel, GUILayout.Width(150));
 
                 GUILayout.Space(10);
+
+                // Generation settings
+                generationSettings = (DungeonGenerationSettings)EditorGUILayout.ObjectField(
+                    generationSettings, typeof(DungeonGenerationSettings), false, GUILayout.Width(200));
 
                 if (GUILayout.Button("Generate", EditorStyles.toolbarButton, GUILayout.Width(80)))
                 {
-                    GenerateNewDungeon();
+                    GenerateProcedural();
                 }
 
-                if (GUILayout.Button("[%]", EditorStyles.toolbarButton, GUILayout.Width(30)))
+                if (generatedCycle != null)
                 {
-                    GenerateWithNewSeed();
+                    if (GUILayout.Button("??", EditorStyles.toolbarButton, GUILayout.Width(30)))
+                    {
+                        GenerateWithNewSeed();
+                    }
+
+                    GUILayout.Label($"Seed: {currentSeed}", GUILayout.Width(80));
                 }
 
-                GUILayout.Space(10);
+                GUILayout.FlexibleSpace();
 
                 if (GUILayout.Button("Load Template", EditorStyles.toolbarButton, GUILayout.Width(100)))
                 {
                     LoadTemplateForPreview();
                 }
 
-                GUILayout.Label($"Seed: {currentSeed}", GUILayout.Width(80));
-
-                GUILayout.FlexibleSpace();
+                GUILayout.Space(10);
 
                 if (GUILayout.Button("Center", EditorStyles.toolbarButton, GUILayout.Width(60)))
                     CenterView();
@@ -150,14 +156,34 @@ namespace DunGen.Editor
             // Update graph data
             if (generatedCycle != null)
             {
-                // Rewrite to flat graph
+                // Preview mode: EXPAND rewrite sites to show the generated dungeon structure
+                // (Author mode shows placeholders, Preview shows expanded result)
                 _flatGraph = GraphRewriter.RewriteToFlatGraph(generatedCycle);
 
                 // Build node depth map
                 _styleProvider.BuildDepthMap(generatedCycle);
 
-                // Get auto-computed positions from preview controller
-                _nodePositions = _previewController.GetNodePositions();
+                // CRITICAL: Compute layout for the EXPANDED graph, not the original cycle!
+                // The flat graph has new nodes from rewrite expansion
+                if (_flatGraph != null && _flatGraph.nodes != null && _flatGraph.nodes.Count > 0)
+                {
+                    // Create a temporary cycle from the flat graph for layout computation
+                    var flatCycle = new DungeonCycle();
+                    flatCycle.nodes.Clear();
+                    flatCycle.edges.Clear();
+
+                    foreach (var node in _flatGraph.nodes)
+                        flatCycle.nodes.Add(node);
+                    foreach (var edge in _flatGraph.edges)
+                        flatCycle.edges.Add(edge);
+
+                    // Find start/goal in flat graph
+                    flatCycle.startNode = _flatGraph.nodes.Find(n => n != null && n.HasRole(NodeRoleType.Start));
+                    flatCycle.goalNode = _flatGraph.nodes.Find(n => n != null && n.HasRole(NodeRoleType.Goal));
+
+                    // Compute layout for expanded graph
+                    _nodePositions = GraphLayoutEngine.ComputeLayout(flatCycle, nodeRadius);
+                }
             }
 
             // Draw grid
@@ -212,9 +238,7 @@ namespace DunGen.Editor
                 inspectorRect,
                 _flatGraph,
                 _previewController.SelectedNode,
-                generatedCycle,
-                ref _selectedCycleType,
-                ApplyRewrite
+                generatedCycle
             );
         }
 
@@ -222,17 +246,32 @@ namespace DunGen.Editor
         // ACTIONS
         // =========================================================
 
-        private void GenerateNewDungeon()
+        private void GenerateProcedural()
         {
-            CycleType randomType = (CycleType)Random.Range(1, 13);
-            generatedCycle = new DungeonCycle(randomType);
+            if (generationSettings == null)
+            {
+                EditorUtility.DisplayDialog("Generation Failed", "Please assign a DungeonGenerationSettings asset", "OK");
+                return;
+            }
 
-            currentSeed = Random.Range(0, 10000);
+            // Generate new seed
+            currentSeed = UnityEngine.Random.Range(0, 10000);
+
+            // Use the procedural generator
+            var generator = new ProceduralDungeonGenerator(generationSettings);
+            generatedCycle = generator.Generate(currentSeed);
+
+            if (generatedCycle == null)
+            {
+                EditorUtility.DisplayDialog("Generation Failed", "Check console for errors", "OK");
+                return;
+            }
+
+            // Set in preview controller
             _previewController.SetSeed(currentSeed);
             _previewController.SetCycle(generatedCycle);
 
             ResetView();
-
             EditorApplication.delayCall += () =>
             {
                 if (this != null)
@@ -307,28 +346,6 @@ namespace DunGen.Editor
             };
         }
 
-        private void ApplyRewrite(CycleNode node, CycleType cycleType)
-        {
-            if (generatedCycle == null || node == null)
-                return;
-
-            var site = FindRewriteSiteRecursive(generatedCycle, node);
-            if (site == null)
-                return;
-
-            site.replacementPattern = new DungeonCycle(cycleType);
-
-            EditorApplication.delayCall += () =>
-            {
-                if (this != null)
-                {
-                    _previewController.SetCycle(generatedCycle);
-                    FitView();
-                    Repaint();
-                }
-            };
-        }
-
         // =========================================================
         // CAMERA CONTROLS
         // =========================================================
@@ -366,28 +383,5 @@ namespace DunGen.Editor
         // HELPERS
         // =========================================================
 
-        private static RewriteSite FindRewriteSiteRecursive(DungeonCycle pattern, CycleNode node)
-        {
-            if (pattern == null || node == null || pattern.rewriteSites == null)
-                return null;
-
-            foreach (var site in pattern.rewriteSites)
-            {
-                if (site != null && site.placeholder == node)
-                    return site;
-            }
-
-            foreach (var site in pattern.rewriteSites)
-            {
-                if (site != null && site.HasReplacement())
-                {
-                    var found = FindRewriteSiteRecursive(site.replacementPattern, node);
-                    if (found != null)
-                        return found;
-                }
-            }
-
-            return null;
-        }
     }
 }

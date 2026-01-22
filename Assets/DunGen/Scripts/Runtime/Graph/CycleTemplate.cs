@@ -16,8 +16,6 @@ namespace DunGen
         [TextArea(3, 10)]
         public string description = "";
 
-        public CycleType cycleType = CycleType.TwoAlternativePaths;
-
         [Header("Template Data")]
         public DungeonCycle cycle;
 
@@ -50,9 +48,11 @@ namespace DunGen
         public static CycleTemplate CreateFromCycle(DungeonCycle cycle, Dictionary<CycleNode, Vector2> positions)
         {
             var template = CreateInstance<CycleTemplate>();
-            template.cycle = cycle;
-            template.cycleType = cycle.type;
-            template.templateName = $"{cycle.type} Template";
+
+            // Create a clean copy of the cycle WITHOUT replacement patterns
+            // (replacement patterns cause infinite serialization depth)
+            template.cycle = CleanCycleForSerialization(cycle);
+            template.templateName = "New Template";
 
             // Store positions
             template.authorPositions.Clear();
@@ -71,6 +71,148 @@ namespace DunGen
             }
 
             return template;
+        }
+
+        /// <summary>
+        /// Create a clean copy of cycle without replacement patterns
+        /// (to avoid serialization depth issues)
+        /// </summary>
+        private static DungeonCycle CleanCycleForSerialization(DungeonCycle source)
+        {
+            if (source == null)
+                return null;
+
+            var clean = new DungeonCycle();
+
+            // Clear default nodes/edges from constructor
+            clean.nodes.Clear();
+            clean.edges.Clear();
+
+            // Create mapping from old nodes to new nodes
+            var nodeMap = new Dictionary<CycleNode, CycleNode>();
+
+            // Deep copy all nodes
+            foreach (var oldNode in source.nodes)
+            {
+                if (oldNode != null)
+                {
+                    var newNode = DeepCopyNode(oldNode);
+                    clean.nodes.Add(newNode);
+                    nodeMap[oldNode] = newNode;
+                }
+            }
+
+            // Deep copy all edges (with remapped node references)
+            foreach (var oldEdge in source.edges)
+            {
+                if (oldEdge != null && nodeMap.ContainsKey(oldEdge.from) && nodeMap.ContainsKey(oldEdge.to))
+                {
+                    var newEdge = new CycleEdge(
+                        nodeMap[oldEdge.from],
+                        nodeMap[oldEdge.to],
+                        oldEdge.bidirectional,
+                        oldEdge.isBlocked,
+                        oldEdge.hasSightline
+                    );
+
+                    // Copy locks
+                    if (oldEdge.requiredKeys != null)
+                    {
+                        foreach (var keyId in oldEdge.requiredKeys)
+                            newEdge.AddRequiredKey(keyId);
+                    }
+
+                    clean.edges.Add(newEdge);
+                }
+            }
+
+            // Copy rewrite sites but WITHOUT replacement patterns
+            clean.rewriteSites.Clear();
+            if (source.rewriteSites != null)
+            {
+                foreach (var site in source.rewriteSites)
+                {
+                    if (site != null && site.placeholder != null && nodeMap.ContainsKey(site.placeholder))
+                    {
+                        // Create NEW rewrite site with remapped node
+                        var newPlaceholder = nodeMap[site.placeholder];
+                        var cleanSite = new RewriteSite(newPlaceholder);
+
+                        // CRITICAL: Explicitly ensure no replacement pattern
+                        // (Unity might serialize old references otherwise)
+                        cleanSite.replacementPattern = null;
+
+                        clean.rewriteSites.Add(cleanSite);
+                    }
+                }
+            }
+
+            // Remap start and goal references
+            if (source.startNode != null && nodeMap.ContainsKey(source.startNode))
+                clean.startNode = nodeMap[source.startNode];
+
+            if (source.goalNode != null && nodeMap.ContainsKey(source.goalNode))
+                clean.goalNode = nodeMap[source.goalNode];
+
+            // VERIFICATION: Check that no patterns leaked through
+            foreach (var site in clean.rewriteSites)
+            {
+                if (site != null && site.replacementPattern != null)
+                {
+                    UnityEngine.Debug.LogError($"[CycleTemplate] BUG: RewriteSite '{site.placeholder?.label}' still has replacementPattern after cleaning!");
+                }
+            }
+
+            return clean;
+        }
+
+        /// <summary>
+        /// Verify that a cycle has no nested replacement patterns
+        /// </summary>
+        private static void VerifyNoNestedPatterns(DungeonCycle cycle, int depth = 0)
+        {
+            if (cycle == null || depth > 5) return;
+
+            if (cycle.rewriteSites != null)
+            {
+                foreach (var site in cycle.rewriteSites)
+                {
+                    if (site != null && site.replacementPattern != null)
+                    {
+                        UnityEngine.Debug.LogError($"[CycleTemplate] VERIFICATION FAILED at depth {depth}: RewriteSite still has replacementPattern! This will cause serialization errors.");
+                        // Recurse to check nested
+                        VerifyNoNestedPatterns(site.replacementPattern, depth + 1);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create a deep copy of a node (without nested cycles)
+        /// </summary>
+        private static CycleNode DeepCopyNode(CycleNode source)
+        {
+            var copy = new CycleNode();
+            copy.label = source.label;
+
+            // Copy keys
+            if (source.grantedKeys != null)
+            {
+                foreach (var keyId in source.grantedKeys)
+                    copy.AddGrantedKey(keyId);
+            }
+
+            // Copy roles
+            if (source.roles != null)
+            {
+                foreach (var role in source.roles)
+                {
+                    if (role != null)
+                        copy.AddRole(role.type);
+                }
+            }
+
+            return copy;
         }
 
         /// <summary>

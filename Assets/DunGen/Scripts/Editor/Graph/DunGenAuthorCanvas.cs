@@ -13,7 +13,7 @@ namespace DunGen.Editor
         // =========================================================
         // DATA
         // =========================================================
-        [SerializeField] private DungeonCycle currentTemplate;
+        [System.NonSerialized] private DungeonCycle currentTemplate;
         [SerializeField] private float nodeRadius = 25.0f;
 
         // Cached data
@@ -96,7 +96,7 @@ namespace DunGen.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUILayout.LabelField("AUTHOR MODE", EditorStyles.boldLabel, GUILayout.Width(150));
+                EditorGUILayout.LabelField("?? AUTHOR MODE", EditorStyles.boldLabel, GUILayout.Width(150));
 
                 GUILayout.Space(10);
 
@@ -149,8 +149,9 @@ namespace DunGen.Editor
             // Update graph data
             if (currentTemplate != null)
             {
-                // Rewrite to flat graph
-                _flatGraph = GraphRewriter.RewriteToFlatGraph(currentTemplate);
+                // In Author mode, we want to see the ORIGINAL structure (including rewrite sites)
+                // NOT the expanded flat graph (which removes placeholders)
+                _flatGraph = new RewrittenGraph(currentTemplate.nodes, currentTemplate.edges);
 
                 // Build node depth map
                 _styleProvider.BuildDepthMap(currentTemplate);
@@ -233,17 +234,7 @@ namespace DunGen.Editor
         private void CreateNewTemplate()
         {
             // Create empty cycle with just start and goal
-            currentTemplate = new DungeonCycle(CycleType.TwoAlternativePaths);
-
-            var start = currentTemplate.startNode;
-            var goal = currentTemplate.goalNode;
-
-            currentTemplate.nodes.Clear();
-            currentTemplate.edges.Clear();
-            currentTemplate.rewriteSites.Clear();
-
-            currentTemplate.nodes.Add(start);
-            currentTemplate.nodes.Add(goal);
+            currentTemplate = new DungeonCycle();
 
             _authorController.SetCycle(currentTemplate);
             ResetView();
@@ -263,6 +254,10 @@ namespace DunGen.Editor
                 EditorUtility.DisplayDialog("Save Failed", "Template must have at least Start and Goal nodes", "OK");
                 return;
             }
+
+            // CRITICAL: Strip replacement patterns from source BEFORE saving
+            // (in case this template was used in Preview mode)
+            StripReplacementPatternsFromCycle(currentTemplate);
 
             string path = EditorUtility.SaveFilePanelInProject(
                 "Save Cycle Template",
@@ -284,6 +279,29 @@ namespace DunGen.Editor
             AssetDatabase.Refresh();
 
             EditorUtility.DisplayDialog("Save Successful", $"Template saved to:\n{path}", "OK");
+        }
+
+        /// <summary>
+        /// Recursively strip all replacement patterns from a cycle (in-place)
+        /// </summary>
+        private void StripReplacementPatternsFromCycle(DungeonCycle cycle)
+        {
+            if (cycle == null || cycle.rewriteSites == null)
+                return;
+
+            foreach (var site in cycle.rewriteSites)
+            {
+                if (site != null)
+                {
+                    if (site.replacementPattern != null)
+                    {
+                        // Recursively strip nested first
+                        StripReplacementPatternsFromCycle(site.replacementPattern);
+                        // Then null it out
+                        site.replacementPattern = null;
+                    }
+                }
+            }
         }
 
         private void LoadTemplate()
@@ -322,19 +340,36 @@ namespace DunGen.Editor
             // Load cycle and positions
             currentTemplate = template.cycle;
 
-            // Restore positions in author controller
-            var positions = template.GetPositionsDictionary();
+            UnityEngine.Debug.Log($"[LoadTemplate] Loaded cycle with {currentTemplate.nodes.Count} nodes");
+
+            // Set cycle first (initializes all nodes to zero)
             _authorController.SetCycle(currentTemplate);
 
-            // Apply loaded positions (we'll need to add this method to AuthorModeController)
-            foreach (var kvp in positions)
+            // Restore positions by matching node labels
+            var savedPositions = template.GetPositionsDictionary();
+            var controllerPositions = _authorController.GetNodePositions();
+
+            UnityEngine.Debug.Log($"[LoadTemplate] Saved positions: {savedPositions.Count}, Controller positions: {controllerPositions.Count}");
+
+            // Match saved positions to current node objects by label
+            int matchedCount = 0;
+            foreach (var savedEntry in savedPositions)
             {
-                var authorPositions = _authorController.GetNodePositions();
-                if (authorPositions.ContainsKey(kvp.Key))
+                foreach (var controllerNode in controllerPositions.Keys)
                 {
-                    authorPositions[kvp.Key] = kvp.Value;
+                    if (controllerNode != null &&
+                        savedEntry.Key != null &&
+                        controllerNode.label == savedEntry.Key.label)
+                    {
+                        UnityEngine.Debug.Log($"[LoadTemplate] Matched '{controllerNode.label}' -> {savedEntry.Value}");
+                        controllerPositions[controllerNode] = savedEntry.Value;
+                        matchedCount++;
+                        break;
+                    }
                 }
             }
+
+            UnityEngine.Debug.Log($"[LoadTemplate] Matched {matchedCount} of {savedPositions.Count} positions");
 
             ResetView();
             EditorApplication.delayCall += () =>

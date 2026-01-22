@@ -51,7 +51,6 @@ namespace DunGen.Editor
             if (currentTemplate != null)
             {
                 EditorGUILayout.LabelField("Template", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("Type:", currentTemplate.type.ToString());
                 EditorGUILayout.LabelField("Nodes:", currentTemplate.nodes.Count.ToString());
                 EditorGUILayout.LabelField("Edges:", currentTemplate.edges.Count.ToString());
                 EditorGUILayout.Space();
@@ -76,13 +75,13 @@ namespace DunGen.Editor
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                ". Click: Select node\n" +
-                ". Drag: Move node\n" +
-                ". Shift+Click: Connect nodes\n" +
-                ". Delete: Remove node\n" +
-                ". Escape: Cancel operation\n" +
-                ". MMB: Pan\n" +
-                ". Scroll: Zoom",
+                "• Click: Select node\n" +
+                "• Drag: Move node\n" +
+                "• Shift+Click: Connect nodes\n" +
+                "• Delete: Remove node\n" +
+                "• Escape: Cancel operation\n" +
+                "• MMB: Pan\n" +
+                "• Scroll: Zoom",
                 MessageType.Info
             );
 
@@ -180,9 +179,9 @@ namespace DunGen.Editor
                                    node.roles[i].type == NodeRoleType.Goal;
 
                 GUI.enabled = !isStructural;
-                EditorGUILayout.LabelField($". {node.roles[i].type}", GUILayout.ExpandWidth(true));
+                EditorGUILayout.LabelField($"• {node.roles[i].type}", GUILayout.ExpandWidth(true));
 
-                if (GUILayout.Button("×", GUILayout.Width(25)))
+                if (GUILayout.Button("x", GUILayout.Width(25)))
                 {
                     node.roles.RemoveAt(i);
                 }
@@ -272,22 +271,22 @@ namespace DunGen.Editor
 
                 edgeCount++;
 
-                string direction = isOutgoing ? "->" : "<-";
+                string direction = isOutgoing ? " -> " : " <- ";
                 CycleNode otherNode = isOutgoing ? edge.to : edge.from;
                 string otherLabel = otherNode != null && !string.IsNullOrEmpty(otherNode.label)
                     ? otherNode.label
-                    : "<unknown>";
+                    : "?";
 
                 string edgeDesc = $"{direction} {otherLabel}";
 
                 var properties = new List<string>();
 
                 if (edge.bidirectional)
-                    properties.Add("<->");
+                    properties.Add(" <-> ");
                 if (edge.isBlocked)
                     properties.Add("BLOCKED");
                 if (edge.RequiresAnyKey())
-                    properties.Add($"LOCK {string.Join(",", edge.requiredKeys)}");
+                    properties.Add($"REQD KEY {string.Join(",", edge.requiredKeys)}");
 
                 if (properties.Count > 0)
                     edgeDesc += $" ({string.Join(", ", properties)})";
@@ -295,7 +294,7 @@ namespace DunGen.Editor
                 // Make edges clickable - use actual button
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField(".", GUILayout.Width(15));
+                    EditorGUILayout.LabelField("•", GUILayout.Width(15));
                     if (GUILayout.Button(edgeDesc, GUI.skin.label))
                     {
                         _selectedEdge = edge;
@@ -379,7 +378,7 @@ namespace DunGen.Editor
 
                 edge.requiredKeys[i] = EditorGUILayout.IntField($"Key {i + 1}:", edge.requiredKeys[i]);
 
-                if (GUILayout.Button("x", GUILayout.Width(25)))
+                if (GUILayout.Button("×", GUILayout.Width(25)))
                 {
                     edge.requiredKeys.RemoveAt(i);
                 }

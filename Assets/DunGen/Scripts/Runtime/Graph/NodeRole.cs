@@ -36,14 +36,9 @@ namespace DunGen
     {
         public NodeRoleType type;
 
-        // For future reward system
-        public int rewardId;
-
         public NodeRole(NodeRoleType type)
         {
             this.type = type;
         }
-
-        public static NodeRole WithReward(int id) => new NodeRole(NodeRoleType.Reward) { rewardId = id };
     }
 }

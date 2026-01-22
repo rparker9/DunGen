@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 50293cd51b5a30a4d8519277dec84314, type: 3}
+  m_Name: DungeonGenSettings
+  m_EditorClassIdentifier: Assembly-CSharp::DunGen.DungeonGenerationSettings
+  templatePool:
+  - {fileID: 11400000, guid: c02f31ba65613684fa22ca3ae45960fd, type: 2}
+  maxRewriteDepth: 2
+  maxRewritesPerCycle: 3
+  rewriteProbability: 0.7
+  selectionMode: 0
+  seed: 0
+  minNodes: 5
+  maxNodes: 50

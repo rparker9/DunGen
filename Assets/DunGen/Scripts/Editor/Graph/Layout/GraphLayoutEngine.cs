@@ -168,64 +168,238 @@ namespace DunGen.Editor
             if (cycleNode.cycle == null)
                 return;
 
-            switch (cycleNode.cycle.type)
+            // Analyze cycle structure to determine layout strategy
+            var analysis = AnalyzeCycleStructure(cycleNode.cycle);
+
+            // Generate constraints based on structure
+            if (analysis.IsLinearPath)
             {
-                case CycleType.TwoAlternativePaths:
-                    GenerateTwoAlternativePathsConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.TwoKeys:
-                    GenerateTwoKeysConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.HiddenShortcut:
-                    GenerateHiddenShortcutConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.ForeshadowingLoop:
-                    GenerateForeshadowingLoopConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.SimpleLockAndKey:
-                    GenerateSimpleLockAndKeyConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.DangerousRoute:
-                    GenerateDangerousRouteConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.LockAndKeyCycle:
-                    GenerateLockAndKeyCycleConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.BlockedRetreat:
-                    GenerateBlockedRetreatConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.MonsterPatrol:
-                    GenerateMonsterPatrolConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.AlteredReturn:
-                    GenerateAlteredReturnConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.FalseGoal:
-                    GenerateFalseGoalConstraints(cycleNode, constraints);
-                    break;
-
-                case CycleType.Gambit:
-                    GenerateGambitConstraints(cycleNode, constraints);
-                    break;
-
-                default:
-                    GenerateDefaultConstraints(cycleNode, constraints);
-                    break;
+                GenerateLinearPathConstraints(cycleNode, constraints);
+            }
+            else if (analysis.HasParallelPaths)
+            {
+                GenerateParallelPathsConstraints(cycleNode, constraints, analysis.PathCount);
+            }
+            else if (analysis.IsCyclic)
+            {
+                GenerateCyclicConstraints(cycleNode, constraints);
+            }
+            else
+            {
+                // Default: Force-directed layout
+                GenerateDefaultConstraints(cycleNode, constraints);
             }
         }
 
+        /// <summary>
+        /// Analyze the structure of a cycle to determine layout strategy
+        /// </summary>
+        private static CycleStructureAnalysis AnalyzeCycleStructure(DungeonCycle cycle)
+        {
+            var analysis = new CycleStructureAnalysis();
+
+            if (cycle == null || cycle.nodes == null || cycle.edges == null)
+                return analysis;
+
+            int nodeCount = cycle.nodes.Count;
+            int edgeCount = cycle.edges.Count;
+
+            // Count paths between start and goal
+            var pathsBetweenStartGoal = CountPathsBetweenNodes(cycle, cycle.startNode, cycle.goalNode);
+
+            // Detect structure patterns
+            analysis.PathCount = pathsBetweenStartGoal;
+            analysis.HasParallelPaths = pathsBetweenStartGoal > 1;
+            analysis.IsLinearPath = pathsBetweenStartGoal == 1 && edgeCount == nodeCount - 1;
+            analysis.IsCyclic = HasCycle(cycle);
+            analysis.NodeCount = nodeCount;
+            analysis.EdgeCount = edgeCount;
+
+            return analysis;
+        }
+
+        private class CycleStructureAnalysis
+        {
+            public bool IsLinearPath;
+            public bool HasParallelPaths;
+            public bool IsCyclic;
+            public int PathCount;
+            public int NodeCount;
+            public int EdgeCount;
+        }
+
+        private static int CountPathsBetweenNodes(DungeonCycle cycle, CycleNode start, CycleNode goal)
+        {
+            if (start == null || goal == null)
+                return 0;
+
+            // Simple BFS to count distinct paths
+            var visited = new HashSet<CycleNode>();
+            var queue = new Queue<CycleNode>();
+            queue.Enqueue(start);
+
+            int pathCount = 0;
+
+            // Find immediate neighbors of start
+            var startNeighbors = new List<CycleNode>();
+            foreach (var edge in cycle.edges)
+            {
+                if (edge.from == start && edge.to != start)
+                    startNeighbors.Add(edge.to);
+                if (edge.bidirectional && edge.to == start && edge.from != start)
+                    startNeighbors.Add(edge.from);
+            }
+
+            // Each distinct neighbor that can reach goal is a path
+            foreach (var neighbor in startNeighbors)
+            {
+                if (CanReach(cycle, neighbor, goal, new HashSet<CycleNode> { start }))
+                    pathCount++;
+            }
+
+            return pathCount;
+        }
+
+        private static bool CanReach(DungeonCycle cycle, CycleNode from, CycleNode to, HashSet<CycleNode> visited)
+        {
+            if (from == to)
+                return true;
+
+            if (visited.Contains(from))
+                return false;
+
+            visited.Add(from);
+
+            foreach (var edge in cycle.edges)
+            {
+                CycleNode next = null;
+
+                if (edge.from == from)
+                    next = edge.to;
+                else if (edge.bidirectional && edge.to == from)
+                    next = edge.from;
+
+                if (next != null && CanReach(cycle, next, to, visited))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasCycle(DungeonCycle cycle)
+        {
+            // Simple cycle detection
+            if (cycle.edges == null)
+                return false;
+
+            foreach (var edge in cycle.edges)
+            {
+                if (edge.bidirectional || edge.from == edge.to)
+                    return true;
+            }
+
+            return false;
+        }
+
         // =========================================================
-        // CONSTRAINT GENERATORS (Declarative)
+        // SIMPLIFIED CONSTRAINT GENERATORS (Structure-Based)
+        // =========================================================
+
+        /// <summary>
+        /// Generate constraints for a linear path (START ? nodes ? GOAL)
+        /// </summary>
+        private static void GenerateLinearPathConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
+        {
+            var cycle = cycleNode.cycle;
+            float r = cycleNode.radius * 0.5f;
+
+            // Horizontal layout: START on left, GOAL on right
+            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
+            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
+
+            // Space middle nodes evenly
+            var middleNodes = GetMiddleNodes(cycle);
+            int count = middleNodes.Count;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = (i + 1f) / (count + 1f); // Evenly spaced between 0 and 1
+                float x = Mathf.Lerp(-r, r, t);
+                AddFixedConstraint(constraints, middleNodes[i], cycleNode.center + new Vector2(x, 0), priority: 80);
+            }
+        }
+
+        /// <summary>
+        /// Generate constraints for parallel paths (multiple routes from START to GOAL)
+        /// </summary>
+        private static void GenerateParallelPathsConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints, int pathCount)
+        {
+            var cycle = cycleNode.cycle;
+            float r = cycleNode.radius * 0.45f;
+
+            // START and GOAL on horizontal axis
+            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
+            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
+
+            // Distribute paths vertically
+            var sites = GetRewriteSites(cycle);
+            int siteCount = Mathf.Min(sites.Count, pathCount);
+
+            for (int i = 0; i < siteCount; i++)
+            {
+                float yOffset = (i - (siteCount - 1) * 0.5f) * (r * 1.6f / siteCount);
+                AddFixedConstraint(constraints, sites[i], cycleNode.center + new Vector2(0, yOffset), priority: 90);
+            }
+        }
+
+        /// <summary>
+        /// Generate constraints for cyclic structures (loops, circuits)
+        /// </summary>
+        private static void GenerateCyclicConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
+        {
+            var cycle = cycleNode.cycle;
+            float r = cycleNode.radius * 0.5f;
+
+            // Circular layout
+            var allNodes = cycle.nodes;
+            int nodeCount = allNodes.Count;
+
+            for (int i = 0; i < nodeCount; i++)
+            {
+                float angle = (i / (float)nodeCount) * Mathf.PI * 2f - Mathf.PI * 0.5f; // Start at top
+                Vector2 pos = cycleNode.center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * r;
+
+                int priority = 90;
+                if (allNodes[i] == cycle.startNode || allNodes[i] == cycle.goalNode)
+                    priority = 100; // Higher priority for start/goal
+
+                AddFixedConstraint(constraints, allNodes[i], pos, priority);
+            }
+        }
+
+        /// <summary>
+        /// Get nodes that are neither start nor goal
+        /// </summary>
+        private static List<CycleNode> GetMiddleNodes(DungeonCycle cycle)
+        {
+            var middle = new List<CycleNode>();
+
+            if (cycle == null || cycle.nodes == null)
+                return middle;
+
+            foreach (var node in cycle.nodes)
+            {
+                if (node != cycle.startNode && node != cycle.goalNode)
+                    middle.Add(node);
+            }
+
+            return middle;
+        }
+
+        // =========================================================
+        // OLD TYPE-SPECIFIC CONSTRAINT GENERATORS (DEPRECATED)
+        // These are kept for reference but no longer used.
+        // The system now uses structure-based analysis instead.
         // =========================================================
 
         private static void GenerateTwoAlternativePathsConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
