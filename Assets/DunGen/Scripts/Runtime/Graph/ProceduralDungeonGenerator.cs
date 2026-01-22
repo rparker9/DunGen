@@ -6,6 +6,7 @@ namespace DunGen
 {
     /// <summary>
     /// Procedurally generates dungeons by recursively applying cycle rewrites.
+    /// FIXED: Deep-copies cycles so nodes aren't shared between template and replacements.
     /// </summary>
     public class ProceduralDungeonGenerator
     {
@@ -46,8 +47,8 @@ namespace DunGen
                 return null;
             }
 
-            // Create a copy of the root cycle (don't modify the template)
-            var rootCycle = CopyCycle(rootTemplate.cycle);
+            // Deep-copy the root cycle (don't modify the template!)
+            var rootCycle = DeepCopyCycle(rootTemplate.cycle);
             _totalNodes = rootCycle.nodes != null ? rootCycle.nodes.Count : 0;
 
             Debug.Log($"[ProceduralDungeonGenerator] Starting with template '{rootTemplate.templateName}' ({_totalNodes} nodes)");
@@ -104,14 +105,18 @@ namespace DunGen
                     continue;
 
                 // Pick random replacement template
-                var replacementTemplate = _settings.GetRandomTemplate(_rng);
+                // Choose template: prefer authored replacementTemplate if present, otherwise random.
+                var replacementTemplate = site.replacementTemplate != null
+                    ? site.replacementTemplate
+                    : _settings.GetRandomTemplate(_rng);
+
                 if (replacementTemplate == null || replacementTemplate.cycle == null)
                     continue;
 
-                // Create a copy of the replacement
-                var replacement = CopyCycle(replacementTemplate.cycle);
+                // Deep-copy so each insertion gets unique nodes (your existing fix).
+                var replacement = DeepCopyCycle(replacementTemplate.cycle);
 
-                // Apply the rewrite
+                // Apply the rewrite (runtime-only field now)
                 site.replacementPattern = replacement;
                 rewritesApplied++;
 
@@ -129,45 +134,112 @@ namespace DunGen
         }
 
         /// <summary>
-        /// Create a shallow copy of a cycle (shares nodes/edges but new rewrite sites list)
+        /// Deep-copy a cycle so each rewrite gets unique node instances.
+        /// This prevents the "skipped duplicate" issue in CycleFlattener.
         /// </summary>
-        private DungeonCycle CopyCycle(DungeonCycle source)
+        private DungeonCycle DeepCopyCycle(DungeonCycle source)
         {
-            var copy = new DungeonCycle();
+            if (source == null)
+                return null;
 
-            // Clear default nodes/edges
+            var copy = new DungeonCycle();
             copy.nodes.Clear();
             copy.edges.Clear();
+            copy.rewriteSites.Clear();
 
-            // Share nodes and edges (we don't need deep copies for generation)
+            // Create mapping from old nodes to new nodes
+            var nodeMap = new Dictionary<CycleNode, CycleNode>();
+
+            // Deep copy all nodes
             if (source.nodes != null)
             {
-                foreach (var node in source.nodes)
-                    copy.nodes.Add(node);
-            }
-
-            if (source.edges != null)
-            {
-                foreach (var edge in source.edges)
-                    copy.edges.Add(edge);
-            }
-
-            // Copy rewrite sites (but not their replacements)
-            copy.rewriteSites.Clear();
-            if (source.rewriteSites != null)
-            {
-                foreach (var site in source.rewriteSites)
+                foreach (var oldNode in source.nodes)
                 {
-                    if (site != null && site.placeholder != null)
+                    if (oldNode != null)
                     {
-                        // Create new site, no replacement yet
-                        copy.rewriteSites.Add(new RewriteSite(site.placeholder));
+                        var newNode = DeepCopyNode(oldNode);
+                        copy.nodes.Add(newNode);
+                        nodeMap[oldNode] = newNode;
                     }
                 }
             }
 
-            copy.startNode = source.startNode;
-            copy.goalNode = source.goalNode;
+            // Deep copy all edges (with remapped node references)
+            if (source.edges != null)
+            {
+                foreach (var oldEdge in source.edges)
+                {
+                    if (oldEdge != null && nodeMap.ContainsKey(oldEdge.from) && nodeMap.ContainsKey(oldEdge.to))
+                    {
+                        var newEdge = new CycleEdge(
+                            nodeMap[oldEdge.from],
+                            nodeMap[oldEdge.to],
+                            oldEdge.bidirectional,
+                            oldEdge.isBlocked,
+                            oldEdge.hasSightline
+                        );
+
+                        // Copy locks
+                        if (oldEdge.requiredKeys != null)
+                        {
+                            foreach (var keyId in oldEdge.requiredKeys)
+                                newEdge.AddRequiredKey(keyId);
+                        }
+
+                        copy.edges.Add(newEdge);
+                    }
+                }
+            }
+
+            // Copy rewrite sites WITHOUT their replacement patterns
+            // (replacements will be populated during generation)
+            if (source.rewriteSites != null)
+            {
+                foreach (var site in source.rewriteSites)
+                {
+                    if (site != null && site.placeholder != null && nodeMap.ContainsKey(site.placeholder))
+                    {
+                        var newSite = new RewriteSite(nodeMap[site.placeholder]);
+                        // Don't copy replacementPattern - it will be generated fresh
+                        copy.rewriteSites.Add(newSite);
+                    }
+                }
+            }
+
+            // Remap start and goal references
+            if (source.startNode != null && nodeMap.ContainsKey(source.startNode))
+                copy.startNode = nodeMap[source.startNode];
+
+            if (source.goalNode != null && nodeMap.ContainsKey(source.goalNode))
+                copy.goalNode = nodeMap[source.goalNode];
+
+            return copy;
+        }
+
+        /// <summary>
+        /// Create a deep copy of a node
+        /// </summary>
+        private static CycleNode DeepCopyNode(CycleNode source)
+        {
+            var copy = new CycleNode();
+            copy.label = source.label;
+
+            // Copy keys
+            if (source.grantedKeys != null)
+            {
+                foreach (var keyId in source.grantedKeys)
+                    copy.AddGrantedKey(keyId);
+            }
+
+            // Copy roles
+            if (source.roles != null)
+            {
+                foreach (var role in source.roles)
+                {
+                    if (role != null)
+                        copy.AddRole(role.type);
+                }
+            }
 
             return copy;
         }

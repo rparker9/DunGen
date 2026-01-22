@@ -17,7 +17,7 @@ namespace DunGen.Editor
         [SerializeField] private float nodeRadius = 25.0f;
 
         // Cached data
-        private RewrittenGraph _flatGraph;
+        private FlatGraph _flatGraph;
         private Dictionary<CycleNode, Vector2> _nodePositions = new Dictionary<CycleNode, Vector2>();
 
         // =========================================================
@@ -151,7 +151,7 @@ namespace DunGen.Editor
             {
                 // In Author mode, we want to see the ORIGINAL structure (including rewrite sites)
                 // NOT the expanded flat graph (which removes placeholders)
-                _flatGraph = new RewrittenGraph(currentTemplate.nodes, currentTemplate.edges);
+                _flatGraph = new FlatGraph(currentTemplate.nodes, currentTemplate.edges);
 
                 // Build node depth map
                 _styleProvider.BuildDepthMap(currentTemplate);
@@ -166,7 +166,7 @@ namespace DunGen.Editor
             // Draw graph
             if (_flatGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera, nodeRadius, _authorController.SelectedEdge);
+                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera);
                 _renderer.DrawNodes(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider,
                     currentTemplate, nodeRadius, _authorController.SelectedNode);
             }

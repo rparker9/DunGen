@@ -5,7 +5,7 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Provides visual styling for nodes: colors, labels, and depth tracking.
-    /// UPDATED: Removed key/lock logic (now on edges)
+    /// UPDATED: Slot markers for subcycle Start/Goal.
     /// </summary>
     public sealed class NodeStyleProvider
     {
@@ -20,8 +20,11 @@ namespace DunGen.Editor
         private static readonly Color RewriteSiteColor = new Color(0.90f, 0.85f, 0.30f);
         private static readonly Color DefaultColor = Color.white;
 
+        // Slot marker alpha (subcycle start/goal)
+        private const float SlotAlpha = 0.35f;
+
         // =========================================================
-        // DEPTH TRACKING (for subcycle detection)
+        // DEPTH TRACKING
         // =========================================================
 
         public void BuildDepthMap(DungeonCycle rootCycle)
@@ -49,7 +52,7 @@ namespace DunGen.Editor
 
             foreach (var site in cycle.rewriteSites)
             {
-                if (site == null || !site.HasReplacement()) continue;
+                if (site == null || !site.HasReplacementPattern()) continue;
                 MarkCycleNodesRecursive(site.replacementPattern, depth + 1);
             }
         }
@@ -58,6 +61,16 @@ namespace DunGen.Editor
         {
             if (node == null) return false;
             return _nodeDepth.TryGetValue(node, out int d) && d > 0;
+        }
+
+        public bool IsSlotMarkerNode(CycleNode node)
+        {
+            if (node == null) return false;
+            if (!_nodeDepth.TryGetValue(node, out int d)) return false;
+            if (d <= 0) return false;
+
+            // Subcycle Start/Goal are “slot markers”
+            return node.HasRole(NodeRoleType.Start) || node.HasRole(NodeRoleType.Goal);
         }
 
         public void Clear()
@@ -103,6 +116,10 @@ namespace DunGen.Editor
                     nodeColor = Color.Lerp(nodeColor, new Color(0.55f, 0.95f, 0.80f), 0.25f);
             }
 
+            // Slot markers: fade them out (faint “slot”)
+            if (IsSlotMarkerNode(node))
+                nodeColor.a = SlotAlpha;
+
             return nodeColor;
         }
 
@@ -132,8 +149,6 @@ namespace DunGen.Editor
             if (node.HasRole(NodeRoleType.Patrol)) return "PATROL";
             if (node.HasRole(NodeRoleType.Reward)) return "REWARD";
 
-            // REMOVED: Key/lock labeling (now on edges)
-
             return "NODE";
         }
 
@@ -156,7 +171,7 @@ namespace DunGen.Editor
             // Check nested sites
             foreach (var site in pattern.rewriteSites)
             {
-                if (site != null && site.HasReplacement())
+                if (site != null && site.HasReplacementPattern())
                 {
                     var found = FindRewriteSiteRecursive(site.replacementPattern, node);
                     if (found != null)

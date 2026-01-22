@@ -17,7 +17,7 @@ namespace DunGen.Editor
 
         public void DrawInspector(
             Rect rect,
-            RewrittenGraph flatGraph,
+            FlatGraph flatGraph,
             CycleNode selectedNode,
             DungeonCycle overallCycle)
         {
@@ -75,7 +75,7 @@ namespace DunGen.Editor
             GUILayout.EndArea();
         }
 
-        private void DrawSelectedNodeInfo(CycleNode selectedNode, DungeonCycle overallCycle, RewrittenGraph flatGraph)
+        private void DrawSelectedNodeInfo(CycleNode selectedNode, DungeonCycle overallCycle, FlatGraph flatGraph)
         {
             bool isSub = _styleProvider.IsSubcycleNode(selectedNode);
             bool isRewriteSite = FindRewriteSiteRecursive(overallCycle, selectedNode) != null;
@@ -113,7 +113,7 @@ namespace DunGen.Editor
             DrawConnectedEdges(selectedNode, flatGraph);
         }
 
-        private void DrawConnectedEdges(CycleNode selectedNode, RewrittenGraph flatGraph)
+        private void DrawConnectedEdges(CycleNode selectedNode, FlatGraph flatGraph)
         {
             if (flatGraph == null || flatGraph.edges == null || selectedNode == null)
             {
@@ -179,7 +179,7 @@ namespace DunGen.Editor
 
             foreach (var site in pattern.rewriteSites)
             {
-                if (site != null && site.HasReplacement())
+                if (site != null && site.HasReplacementPattern())
                 {
                     var found = FindRewriteSiteRecursive(site.replacementPattern, node);
                     if (found != null)

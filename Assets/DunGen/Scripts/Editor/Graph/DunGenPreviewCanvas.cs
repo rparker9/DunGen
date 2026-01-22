@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,7 +6,8 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Preview canvas: Generate and view expanded cycles.
-    /// Standalone window for read-only dungeon preview.
+    /// Uses CycleFlattener to collect nested nodes/edges for rendering,
+    /// but uses GraphLayoutEngine.ComputeLayout(rootCycle) for positions.
     /// </summary>
     public sealed class DunGenPreviewCanvas : EditorWindow
     {
@@ -19,77 +19,60 @@ namespace DunGen.Editor
         [SerializeField] private float nodeRadius = 25.0f;
         [SerializeField] private int currentSeed;
 
-        // Cached data
-        private RewrittenGraph _flatGraph;
-        private Dictionary<CycleNode, Vector2> _nodePositions = new Dictionary<CycleNode, Vector2>();
+        // Cached data for rendering
+        private FlatGraph _flatGraph;
 
-        // =========================================================
-        // SHARED COMPONENTS
-        // =========================================================
-        private CameraController _camera = new CameraController();
-        private GraphRenderer _renderer = new GraphRenderer();
-        private NodeStyleProvider _styleProvider = new NodeStyleProvider();
+        // Layout results
+        private readonly Dictionary<CycleNode, Vector2> _nodePositions = new();
+        private List<GraphLayoutEngine.CycleVisualBounds> _cycleBounds = new();
+
+        // Render + styling
+        private GraphRenderer _renderer;
+        private NodeStyleProvider _styleProvider;
+
+        // Camera
+        private CameraController _camera;
+
+        // Mode controller + inspector (preview-only)
+        private PreviewModeController _previewController;
         private PreviewInspector _inspector;
 
         // =========================================================
-        // PREVIEW MODE CONTROLLER
+        // WINDOW
         // =========================================================
-        private PreviewModeController _previewController;
-
-        // =========================================================
-        // WINDOW SETUP
-        // =========================================================
-        [MenuItem("Tools/DunGen/Preview Canvas")]
-        public static void ShowWindow()
+        [MenuItem("Tools/DunGen/Preview Graph")]
+        public static void Open()
         {
-            var window = GetWindow<DunGenPreviewCanvas>("DunGen Preview");
-            window.minSize = new Vector2(1200, 700);
+            var w = GetWindow<DunGenPreviewCanvas>("DunGen Preview");
+            w.minSize = new Vector2(1000, 650);
         }
 
         private void OnEnable()
         {
-            _inspector = new PreviewInspector(_styleProvider);
+            _camera = new CameraController();
+            _renderer = new GraphRenderer();
+            _styleProvider = new NodeStyleProvider();
+
             _previewController = new PreviewModeController(nodeRadius);
+            _inspector = new PreviewInspector(_styleProvider);
 
-            // Generate initial dungeon if none exists
-            if (generatedCycle == null)
-                GenerateWithNewSeed();
-            else
-                _previewController.SetCycle(generatedCycle);
+            if (generatedCycle != null)
+                RefreshCycleDisplay();
         }
 
-        private void OnDisable()
-        {
-            _nodePositions.Clear();
-            _flatGraph = null;
-            _styleProvider.Clear();
-        }
-
-        // =========================================================
-        // MAIN GUI
-        // =========================================================
         private void OnGUI()
         {
             DrawToolbar();
 
-            Rect canvasRect = new Rect(
-                0,
-                EditorStyles.toolbar.fixedHeight,
-                position.width - 260f,
-                position.height - EditorStyles.toolbar.fixedHeight
-            );
+            // Layout: left canvas, right inspector
+            var toolbarH = 36f;
+            var inspectorW = 320f;
 
-            Rect inspectorRect = new Rect(
-                position.width - 260f,
-                EditorStyles.toolbar.fixedHeight,
-                260f,
-                position.height - EditorStyles.toolbar.fixedHeight
-            );
+            var canvasRect = new Rect(0, toolbarH, position.width - inspectorW, position.height - toolbarH);
+            var inspectorRect = new Rect(position.width - inspectorW, toolbarH, inspectorW, position.height - toolbarH);
 
             DrawCanvas(canvasRect);
             DrawInspector(inspectorRect);
-
-            Repaint();
         }
 
         // =========================================================
@@ -99,45 +82,33 @@ namespace DunGen.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUILayout.LabelField("??? PREVIEW MODE", EditorStyles.boldLabel, GUILayout.Width(150));
+                generationSettings = (DungeonGenerationSettings)EditorGUILayout.ObjectField(
+                    new GUIContent("Settings"),
+                    generationSettings,
+                    typeof(DungeonGenerationSettings),
+                    false,
+                    GUILayout.Width(360));
 
                 GUILayout.Space(10);
 
-                // Generation settings
-                generationSettings = (DungeonGenerationSettings)EditorGUILayout.ObjectField(
-                    generationSettings, typeof(DungeonGenerationSettings), false, GUILayout.Width(200));
-
-                if (GUILayout.Button("Generate", EditorStyles.toolbarButton, GUILayout.Width(80)))
+                float newRadius = EditorGUILayout.Slider(new GUIContent("Node Radius"), nodeRadius, 10f, 50f, GUILayout.Width(260));
+                if (!Mathf.Approximately(newRadius, nodeRadius))
                 {
-                    GenerateProcedural();
-                }
-
-                if (generatedCycle != null)
-                {
-                    if (GUILayout.Button("??", EditorStyles.toolbarButton, GUILayout.Width(30)))
-                    {
-                        GenerateWithNewSeed();
-                    }
-
-                    GUILayout.Label($"Seed: {currentSeed}", GUILayout.Width(80));
+                    nodeRadius = newRadius;
+                    // Recompute layout if we already have a graph
+                    if (generatedCycle != null)
+                        RefreshCycleDisplay();
                 }
 
                 GUILayout.FlexibleSpace();
 
-                if (GUILayout.Button("Load Template", EditorStyles.toolbarButton, GUILayout.Width(100)))
-                {
-                    LoadTemplateForPreview();
-                }
+                if (GUILayout.Button("Generate", EditorStyles.toolbarButton, GUILayout.Width(110)))
+                    GenerateProcedural();
 
-                GUILayout.Space(10);
-
-                if (GUILayout.Button("Center", EditorStyles.toolbarButton, GUILayout.Width(60)))
-                    CenterView();
-
-                if (GUILayout.Button("Fit", EditorStyles.toolbarButton, GUILayout.Width(50)))
+                if (GUILayout.Button("Fit", EditorStyles.toolbarButton, GUILayout.Width(60)))
                     FitView();
 
-                if (GUILayout.Button("Reset", EditorStyles.toolbarButton, GUILayout.Width(60)))
+                if (GUILayout.Button("Reset", EditorStyles.toolbarButton, GUILayout.Width(70)))
                     ResetView();
             }
         }
@@ -147,57 +118,43 @@ namespace DunGen.Editor
         // =========================================================
         private void DrawCanvas(Rect canvasRect)
         {
-            // Draw background
             _renderer.DrawBackground(canvasRect);
 
-            // Handle input
             HandleCanvasInput(canvasRect);
 
-            // Update graph data
-            if (generatedCycle != null)
-            {
-                // Preview mode: EXPAND rewrite sites to show the generated dungeon structure
-                // (Author mode shows placeholders, Preview shows expanded result)
-                _flatGraph = GraphRewriter.RewriteToFlatGraph(generatedCycle);
-
-                // Build node depth map
-                _styleProvider.BuildDepthMap(generatedCycle);
-
-                // CRITICAL: Compute layout for the EXPANDED graph, not the original cycle!
-                // The flat graph has new nodes from rewrite expansion
-                if (_flatGraph != null && _flatGraph.nodes != null && _flatGraph.nodes.Count > 0)
-                {
-                    // Create a temporary cycle from the flat graph for layout computation
-                    var flatCycle = new DungeonCycle();
-                    flatCycle.nodes.Clear();
-                    flatCycle.edges.Clear();
-
-                    foreach (var node in _flatGraph.nodes)
-                        flatCycle.nodes.Add(node);
-                    foreach (var edge in _flatGraph.edges)
-                        flatCycle.edges.Add(edge);
-
-                    // Find start/goal in flat graph
-                    flatCycle.startNode = _flatGraph.nodes.Find(n => n != null && n.HasRole(NodeRoleType.Start));
-                    flatCycle.goalNode = _flatGraph.nodes.Find(n => n != null && n.HasRole(NodeRoleType.Goal));
-
-                    // Compute layout for expanded graph
-                    _nodePositions = GraphLayoutEngine.ComputeLayout(flatCycle, nodeRadius);
-                }
-            }
-
-            // Draw grid
             _renderer.DrawGrid(canvasRect, _camera);
 
-            // Draw graph
             if (_flatGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera, nodeRadius);
-                _renderer.DrawNodes(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider,
-                    generatedCycle, nodeRadius, _previewController.SelectedNode);
+                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera);
+                _renderer.DrawNodes(
+                    _flatGraph,
+                    _nodePositions,
+                    canvasRect,
+                    _camera,
+                    _styleProvider,
+                    generatedCycle,
+                    nodeRadius,
+                    _previewController.SelectedNode);
+            }
+            else if (generatedCycle != null)
+            {
+                var helpStyle = new GUIStyle(EditorStyles.helpBox)
+                {
+                    fontSize = 12,
+                    alignment = TextAnchor.MiddleCenter
+                };
+
+                var helpRect = new Rect(canvasRect.center.x - 170, canvasRect.center.y - 45, 340, 90);
+                string debugInfo =
+                    $"Original Cycle: {generatedCycle.nodes?.Count ?? 0} nodes\n" +
+                    $"Flat Graph: {_flatGraph?.nodes?.Count ?? 0} nodes, {_flatGraph?.edges?.Count ?? 0} edges\n" +
+                    $"Positions: {_nodePositions.Count}\n\n" +
+                    "Check console for detailed logs";
+
+                GUI.Box(helpRect, debugInfo, helpStyle);
             }
 
-            // Preview mode has no overlays
             _previewController.DrawOverlays(canvasRect, _camera);
         }
 
@@ -209,7 +166,7 @@ namespace DunGen.Editor
             if (!canvasRect.Contains(mousePos))
                 return;
 
-            // SHARED: Camera controls
+            // Camera pan (MMB)
             if (e.type == EventType.MouseDrag && e.button == 2)
             {
                 _camera.Pan(e.delta);
@@ -217,6 +174,7 @@ namespace DunGen.Editor
                 return;
             }
 
+            // Zoom (wheel)
             if (e.type == EventType.ScrollWheel)
             {
                 float zoomDelta = -e.delta.y * 0.05f;
@@ -225,7 +183,6 @@ namespace DunGen.Editor
                 return;
             }
 
-            // Preview-specific input handling (read-only selection)
             _previewController.HandleInput(e, mousePos, canvasRect, _camera);
         }
 
@@ -245,123 +202,157 @@ namespace DunGen.Editor
         // =========================================================
         // ACTIONS
         // =========================================================
-
         private void GenerateProcedural()
         {
             if (generationSettings == null)
             {
-                EditorUtility.DisplayDialog("Generation Failed", "Please assign a DungeonGenerationSettings asset", "OK");
+                EditorUtility.DisplayDialog("Generation Failed", "Please assign a DungeonGenerationSettings asset.", "OK");
                 return;
             }
 
-            // Generate new seed
-            currentSeed = UnityEngine.Random.Range(0, 10000);
+            if (!generationSettings.IsValid(out var err))
+            {
+                EditorUtility.DisplayDialog("Generation Failed", err, "OK");
+                return;
+            }
 
-            // Use the procedural generator
+            currentSeed = Random.Range(0, 10000);
+            _previewController.SetSeed(currentSeed);
+
+            Debug.Log($"[Preview] ========== GENERATING DUNGEON (Seed: {currentSeed}) ==========");
+
             var generator = new ProceduralDungeonGenerator(generationSettings);
             generatedCycle = generator.Generate(currentSeed);
 
             if (generatedCycle == null)
             {
-                EditorUtility.DisplayDialog("Generation Failed", "Check console for errors", "OK");
+                EditorUtility.DisplayDialog("Generation Failed", "Generator returned null. Check console for errors.", "OK");
                 return;
             }
 
-            // Set in preview controller
-            _previewController.SetSeed(currentSeed);
-            _previewController.SetCycle(generatedCycle);
-
+            RefreshCycleDisplay();
             ResetView();
+
             EditorApplication.delayCall += () =>
             {
-                if (this != null)
-                {
-                    FitView();
-                    Repaint();
-                }
+                if (this == null) return;
+                FitView();
+                Repaint();
             };
         }
 
-        private void GenerateWithNewSeed()
+        private void RefreshCycleDisplay()
         {
             if (generatedCycle == null)
-                return;
-
-            currentSeed = Random.Range(0, 10000);
-            _previewController.SetSeed(currentSeed);
-            _previewController.RegenerateLayout();
-
-            FitView();
-        }
-
-        private void LoadTemplateForPreview()
-        {
-            string path = EditorUtility.OpenFilePanel(
-                "Load Cycle Template",
-                "Assets",
-                "asset"
-            );
-
-            if (string.IsNullOrEmpty(path))
-                return;
-
-            // Convert absolute path to relative asset path
-            if (path.StartsWith(Application.dataPath))
             {
-                path = "Assets" + path.Substring(Application.dataPath.Length);
-            }
-
-            // Load the template asset
-            var template = AssetDatabase.LoadAssetAtPath<CycleTemplate>(path);
-
-            if (template == null)
-            {
-                EditorUtility.DisplayDialog("Load Failed", "Could not load template asset", "OK");
+                _flatGraph = null;
+                _nodePositions.Clear();
+                _cycleBounds.Clear();
                 return;
             }
 
-            // Validate template
-            if (!template.IsValid(out string errorMessage))
+            Debug.Log($"[Preview] ===== REFRESH CYCLE DISPLAY =====");
+            Debug.Log($"[Preview] Original cycle: {generatedCycle.nodes?.Count ?? 0} nodes, {generatedCycle.rewriteSites?.Count ?? 0} rewrite sites");
+
+            // Flatten for rendering edges (GraphRenderer consumes FlatGraph)
+            _flatGraph = CycleFlattener.FlattenNestedCycle(generatedCycle);
+
+            if (_flatGraph == null || _flatGraph.nodes == null || _flatGraph.nodes.Count == 0)
             {
-                EditorUtility.DisplayDialog("Load Failed", $"Invalid template:\n{errorMessage}", "OK");
+                Debug.LogWarning("[Preview] Flatten returned empty graph");
+                _nodePositions.Clear();
+                _cycleBounds.Clear();
                 return;
             }
 
-            // Load cycle for preview
-            generatedCycle = template.cycle;
+            Debug.Log($"[Preview] Flat graph: {_flatGraph.nodes.Count} nodes, {_flatGraph.edges.Count} edges");
 
-            currentSeed = Random.Range(0, 10000);
-            _previewController.SetSeed(currentSeed);
-            _previewController.SetCycle(generatedCycle);
+            // Compute positions from hierarchical cycle layout
+            _nodePositions.Clear();
+            _cycleBounds = new List<GraphLayoutEngine.CycleVisualBounds>();
 
-            ResetView();
+            var positions = GraphLayoutEngine.ComputeLayout(generatedCycle, nodeRadius, out _cycleBounds);
 
-            EditorApplication.delayCall += () =>
+            // If layout returns nothing (e.g., missing replacementPattern links), fallback to circle
+            if (positions == null || positions.Count == 0)
             {
-                if (this != null)
-                {
-                    FitView();
-                    Repaint();
-                }
-            };
+                Debug.LogWarning("[Preview] Hierarchical ComputeLayout returned 0 positions; using circle fallback.");
+                positions = ComputeCircleFallback(_flatGraph, nodeRadius);
+            }
+
+            // Make sure every flattened node has a position; if not, place missing ones on an outer ring.
+            foreach (var kv in positions)
+                _nodePositions[kv.Key] = kv.Value;
+
+            EnsureAllFlatNodesHavePositions(_flatGraph, _nodePositions, nodeRadius);
+
+            Debug.Log($"[Preview] Computed {_nodePositions.Count} positions");
         }
 
-        // =========================================================
-        // CAMERA CONTROLS
-        // =========================================================
-
-        private void ResetView()
+        private static Dictionary<CycleNode, Vector2> ComputeCircleFallback(FlatGraph graph, float radius)
         {
-            _camera.Reset();
+            var result = new Dictionary<CycleNode, Vector2>();
+            if (graph == null || graph.nodes == null || graph.nodes.Count == 0)
+                return result;
+
+            int count = graph.nodes.Count;
+            float r = Mathf.Max(250f, count * radius * 0.9f);
+
+            for (int i = 0; i < count; i++)
+            {
+                var n = graph.nodes[i];
+                if (n == null) continue;
+
+                float t = (count <= 1) ? 0f : i / (float)count;
+                float ang = t * Mathf.PI * 2f;
+                result[n] = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r;
+            }
+
+            return result;
         }
 
-        private void CenterView()
+        private static void EnsureAllFlatNodesHavePositions(FlatGraph graph, Dictionary<CycleNode, Vector2> positions, float nodeRadius)
         {
-            if (_nodePositions.Count == 0)
+            if (graph == null || graph.nodes == null || positions == null)
                 return;
 
-            Vector2 centroid = CameraController.CalculateCentroid(_nodePositions);
-            _camera.CenterOn(centroid);
+            // Find a sensible center
+            Vector2 center = Vector2.zero;
+            int c = 0;
+            foreach (var kv in positions)
+            {
+                center += kv.Value;
+                c++;
+            }
+            if (c > 0) center /= c;
+
+            // Find max radius already used
+            float maxR = 0f;
+            foreach (var kv in positions)
+            {
+                float r = (kv.Value - center).magnitude;
+                if (r > maxR) maxR = r;
+            }
+
+            // Place missing nodes on an outer ring
+            var missing = new List<CycleNode>();
+            foreach (var n in graph.nodes)
+            {
+                if (n == null) continue;
+                if (!positions.ContainsKey(n))
+                    missing.Add(n);
+            }
+
+            if (missing.Count == 0)
+                return;
+
+            float ringR = Mathf.Max(maxR + nodeRadius * 6f, 300f);
+            for (int i = 0; i < missing.Count; i++)
+            {
+                float t = (missing.Count <= 1) ? 0f : i / (float)missing.Count;
+                float ang = t * Mathf.PI * 2f;
+                positions[missing[i]] = center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * ringR;
+            }
         }
 
         private void FitView()
@@ -369,19 +360,14 @@ namespace DunGen.Editor
             if (_nodePositions.Count == 0)
                 return;
 
-            Rect bounds = CameraController.CalculateWorldBounds(_nodePositions, nodeRadius);
-            Vector2 canvasSize = new Vector2(
-                position.width - 260f,
-                position.height - EditorStyles.toolbar.fixedHeight
-            );
-
-            float padding = nodeRadius * 2f + 30f;
-            _camera.FitToBounds(bounds, canvasSize, padding);
+            var bounds = CameraController.CalculateWorldBounds(_nodePositions, nodeRadius);
+            var canvasSize = new Vector2(position.width - 320f, position.height - 36f);
+            _camera.FitToBounds(bounds, canvasSize, padding: nodeRadius * 2f);
         }
 
-        // =========================================================
-        // HELPERS
-        // =========================================================
-
+        private void ResetView()
+        {
+            _camera.Reset();
+        }
     }
 }

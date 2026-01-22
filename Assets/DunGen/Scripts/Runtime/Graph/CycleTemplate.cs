@@ -43,6 +43,18 @@ namespace DunGen
         }
 
         /// <summary>
+        /// Creates a clean runtime copy suitable for preview/generation.
+        /// This ensures:
+        /// - No replacementPattern graphs are retained (runtime-only).
+        /// - No shared references that can get serialized back into the asset.
+        /// </summary>
+        public DungeonCycle CreateRuntimeCopy()
+        {
+            return CleanCycleForSerialization(cycle);
+        }
+
+
+        /// <summary>
         /// Create a new template from a cycle
         /// </summary>
         public static CycleTemplate CreateFromCycle(DungeonCycle cycle, Dictionary<CycleNode, Vector2> positions)
@@ -73,98 +85,89 @@ namespace DunGen
             return template;
         }
 
-        /// <summary>
-        /// Create a clean copy of cycle without replacement patterns
-        /// (to avoid serialization depth issues)
-        /// </summary>
-        private static DungeonCycle CleanCycleForSerialization(DungeonCycle source)
+        // =========================================================
+        // Serialization cleanup (deep copy WITHOUT runtime links)
+        // =========================================================
+
+        private static DungeonCycle CleanCycleForSerialization(DungeonCycle original)
         {
-            if (source == null)
+            if (original == null)
                 return null;
 
-            var clean = new DungeonCycle();
-
-            // Clear default nodes/edges from constructor
-            clean.nodes.Clear();
-            clean.edges.Clear();
-
-            // Create mapping from old nodes to new nodes
             var nodeMap = new Dictionary<CycleNode, CycleNode>();
+            var cleaned = new DungeonCycle();
 
-            // Deep copy all nodes
-            foreach (var oldNode in source.nodes)
+            // Copy nodes
+            cleaned.nodes = new List<CycleNode>();
+            foreach (var n in original.nodes)
             {
-                if (oldNode != null)
+                if (n == null) continue;
+                var nn = new CycleNode
                 {
-                    var newNode = DeepCopyNode(oldNode);
-                    clean.nodes.Add(newNode);
-                    nodeMap[oldNode] = newNode;
-                }
-            }
+                    label = n.label,
+                    roles = new List<NodeRole>(),
+                    grantedKeys = n.grantedKeys != null ? new List<int>(n.grantedKeys) : new List<int>()
+                };
 
-            // Deep copy all edges (with remapped node references)
-            foreach (var oldEdge in source.edges)
-            {
-                if (oldEdge != null && nodeMap.ContainsKey(oldEdge.from) && nodeMap.ContainsKey(oldEdge.to))
+                if (n.roles != null)
                 {
-                    var newEdge = new CycleEdge(
-                        nodeMap[oldEdge.from],
-                        nodeMap[oldEdge.to],
-                        oldEdge.bidirectional,
-                        oldEdge.isBlocked,
-                        oldEdge.hasSightline
-                    );
-
-                    // Copy locks
-                    if (oldEdge.requiredKeys != null)
+                    foreach (var r in n.roles)
                     {
-                        foreach (var keyId in oldEdge.requiredKeys)
-                            newEdge.AddRequiredKey(keyId);
-                    }
-
-                    clean.edges.Add(newEdge);
-                }
-            }
-
-            // Copy rewrite sites but WITHOUT replacement patterns
-            clean.rewriteSites.Clear();
-            if (source.rewriteSites != null)
-            {
-                foreach (var site in source.rewriteSites)
-                {
-                    if (site != null && site.placeholder != null && nodeMap.ContainsKey(site.placeholder))
-                    {
-                        // Create NEW rewrite site with remapped node
-                        var newPlaceholder = nodeMap[site.placeholder];
-                        var cleanSite = new RewriteSite(newPlaceholder);
-
-                        // CRITICAL: Explicitly ensure no replacement pattern
-                        // (Unity might serialize old references otherwise)
-                        cleanSite.replacementPattern = null;
-
-                        clean.rewriteSites.Add(cleanSite);
+                        if (r == null) continue;
+                        nn.roles.Add(new NodeRole(r.type));
                     }
                 }
+
+                nodeMap[n] = nn;
+                cleaned.nodes.Add(nn);
             }
 
-            // Remap start and goal references
-            if (source.startNode != null && nodeMap.ContainsKey(source.startNode))
-                clean.startNode = nodeMap[source.startNode];
+            // Copy start/goal refs
+            if (original.startNode != null && nodeMap.TryGetValue(original.startNode, out var s))
+                cleaned.startNode = s;
+            if (original.goalNode != null && nodeMap.TryGetValue(original.goalNode, out var g))
+                cleaned.goalNode = g;
 
-            if (source.goalNode != null && nodeMap.ContainsKey(source.goalNode))
-                clean.goalNode = nodeMap[source.goalNode];
-
-            // VERIFICATION: Check that no patterns leaked through
-            foreach (var site in clean.rewriteSites)
+            // Copy edges
+            cleaned.edges = new List<CycleEdge>();
+            if (original.edges != null)
             {
-                if (site != null && site.replacementPattern != null)
+                foreach (var e in original.edges)
                 {
-                    UnityEngine.Debug.LogError($"[CycleTemplate] BUG: RewriteSite '{site.placeholder?.label}' still has replacementPattern after cleaning!");
+                    if (e == null) continue;
+                    if (e.from == null || e.to == null) continue;
+                    if (!nodeMap.TryGetValue(e.from, out var from)) continue;
+                    if (!nodeMap.TryGetValue(e.to, out var to)) continue;
+
+                    var ne = new CycleEdge(from, to, e.bidirectional)
+                    {
+                        isBlocked = e.isBlocked,
+                        hasSightline = e.hasSightline,
+                        requiredKeys = e.requiredKeys != null ? new List<int>(e.requiredKeys) : new List<int>()
+                    };
+
+                    cleaned.edges.Add(ne);
                 }
             }
 
-            return clean;
+            // Copy rewrite sites (but NEVER copy replacementPattern)
+            cleaned.rewriteSites = new List<RewriteSite>();
+            if (original.rewriteSites != null)
+            {
+                foreach (var site in original.rewriteSites)
+                {
+                    if (site == null || site.placeholder == null) continue;
+                    if (!nodeMap.TryGetValue(site.placeholder, out var ph)) continue;
+
+                    var ns = new RewriteSite(ph);
+                    // ns.replacementPattern intentionally NOT copied
+                    cleaned.rewriteSites.Add(ns);
+                }
+            }
+
+            return cleaned;
         }
+    
 
         /// <summary>
         /// Verify that a cycle has no nested replacement patterns

@@ -98,61 +98,19 @@ MonoBehaviour:
         label: Node 2
         roles: []
         grantedKeys: 
-      replacementPattern:
-        startNode:
-          label: START
-          roles:
-          - type: 0
-          grantedKeys: 
-        goalNode:
-          label: GOAL
-          roles:
-          - type: 1
-          grantedKeys: 
-        nodes:
-        - label: START
-          roles:
-          - type: 0
-          grantedKeys: 
-        - label: GOAL
-          roles:
-          - type: 1
-          grantedKeys: 
-        edges: []
-        rewriteSites: []
+      replacementTemplate: {fileID: 0}
     - placeholder:
         label: Node 3
         roles: []
         grantedKeys: 
-      replacementPattern:
-        startNode:
-          label: START
-          roles:
-          - type: 0
-          grantedKeys: 
-        goalNode:
-          label: GOAL
-          roles:
-          - type: 1
-          grantedKeys: 
-        nodes:
-        - label: START
-          roles:
-          - type: 0
-          grantedKeys: 
-        - label: GOAL
-          roles:
-          - type: 1
-          grantedKeys: 
-        edges: []
-        rewriteSites: []
+      replacementTemplate: {fileID: 0}
   authorPositions:
   - nodeId: START
-    position: {x: -100, y: -1.5}
+    position: {x: -101, y: 3.5}
   - nodeId: GOAL
-    position: {x: 100, y: -1.5}
+    position: {x: 87, y: 3.5}
   - nodeId: Node 2
-    position: {x: -1, y: 48.5}
+    position: {x: -5, y: 83.5}
   - nodeId: Node 3
-    position: {x: 0, y: -50.5}
+    position: {x: -6, y: -91.5}
   thumbnail: {fileID: 0}

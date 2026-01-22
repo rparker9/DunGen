@@ -7,7 +7,7 @@ namespace DunGen.Editor
     /// Constraint-based hierarchical layout engine.
     /// Uses declarative positioning rules and automatic overlap resolution.
     /// </summary>
-    public static class GraphLayoutEngine
+    public sealed class GraphLayoutEngine
     {
         // Layout configuration
         private const float BaseRadius = 250f;
@@ -18,6 +18,23 @@ namespace DunGen.Editor
         // Overlap resolution
         private const int MaxOverlapIterations = 50;
         private const float OverlapPushForce = 0.5f;
+
+        /// <summary>
+        /// Cycle boundary information for rendering “cycles within cycles”.
+        /// </summary>
+        public readonly struct CycleVisualBounds
+        {
+            public readonly Vector2 Center;
+            public readonly float Radius;
+            public readonly int Depth;
+
+            public CycleVisualBounds(Vector2 center, float radius, int depth)
+            {
+                Center = center;
+                Radius = radius;
+                Depth = depth;
+            }
+        }
 
         /// <summary>
         /// Layout constraint types
@@ -72,15 +89,25 @@ namespace DunGen.Editor
             DungeonCycle rootCycle,
             float nodeRadius)
         {
+            return ComputeLayout(rootCycle, nodeRadius, out _);
+        }
+
+        public static Dictionary<CycleNode, Vector2> ComputeLayout(
+            DungeonCycle rootCycle,
+            float nodeRadius,
+            out List<CycleVisualBounds> cycleBounds)
+        {
+            cycleBounds = new List<CycleVisualBounds>();
+
             if (rootCycle == null)
                 return new Dictionary<CycleNode, Vector2>();
 
-            // Build hierarchy tree
+            // Build hierarchy tree (requires real rewriteSites + replacementPattern)
             var root = BuildCycleHierarchy(rootCycle, depth: 0);
 
             // Generate constraints recursively
             var constraints = new List<LayoutConstraint>();
-            GenerateConstraints(root, Vector2.zero, BaseRadius, constraints);
+            GenerateConstraints(root, Vector2.zero, BaseRadius, constraints, cycleBounds);
 
             // Resolve constraints to positions
             var positions = ResolveConstraints(constraints, nodeRadius);
@@ -112,17 +139,17 @@ namespace DunGen.Editor
                     node.ownedNodes.Add(cycleNode);
             }
 
-            if (cycle.rewriteSites != null)
+            if (cycle.rewriteSites == null)
+                return node;
+
+            foreach (var site in cycle.rewriteSites)
             {
-                foreach (var site in cycle.rewriteSites)
-                {
-                    if (site != null && site.HasReplacement() && site.placeholder != null)
-                    {
-                        var subcycle = BuildCycleHierarchy(site.replacementPattern, depth + 1);
-                        node.subcycles.Add(subcycle);
-                        node.placeholderToSubcycle[site.placeholder] = subcycle;
-                    }
-                }
+                if (site == null || site.placeholder == null || !site.HasReplacementPattern())
+                    continue;
+
+                var sub = BuildCycleHierarchy(site.replacementPattern, depth + 1);
+                node.subcycles.Add(sub);
+                node.placeholderToSubcycle[site.placeholder] = sub;
             }
 
             return node;
@@ -135,129 +162,99 @@ namespace DunGen.Editor
         private static void GenerateConstraints(
             CycleLayoutNode cycleNode,
             Vector2 center,
-            float availableRadius,
-            List<LayoutConstraint> constraints)
+            float radius,
+            List<LayoutConstraint> constraints,
+            List<CycleVisualBounds> boundsOut)
         {
+            if (cycleNode == null || cycleNode.cycle == null)
+                return;
+
+            // Clamp radius by depth
+            radius = Mathf.Max(radius, MinRadius);
+
             cycleNode.center = center;
-            cycleNode.radius = Mathf.Max(MinRadius, availableRadius);
+            cycleNode.radius = radius;
 
-            // Generate constraints for this cycle
-            GenerateConstraintsForCycle(cycleNode, constraints);
+            // Record this cycle boundary (for rendering rings)
+            boundsOut?.Add(new CycleVisualBounds(center, radius, cycleNode.depth));
 
-            // Generate constraints for subcycles
+            // Place this cycle’s owned nodes on a circle
+            AddCircularConstraints(cycleNode.ownedNodes, center, radius, constraints);
+
+            // Recurse into subcycles: each subcycle is centered on the placeholder node
             foreach (var kvp in cycleNode.placeholderToSubcycle)
             {
                 var placeholder = kvp.Key;
-                var subcycle = kvp.Value;
+                var sub = kvp.Value;
+                if (placeholder == null || sub == null) continue;
 
-                // Find placeholder's constraint to get its position
-                var placeholderConstraint = constraints.Find(c => c.node == placeholder);
-                if (placeholderConstraint != null)
-                {
-                    Vector2 subcycleCenter = ResolveConstraintPosition(placeholderConstraint);
-                    float subcycleRadius = cycleNode.radius * RadiusScale;
-                    GenerateConstraints(subcycle, subcycleCenter, subcycleRadius, constraints);
-                }
+                // Find placeholder constraint position on the circle
+                Vector2 placeholderPos = GetConstraintPositionForNode(constraints, placeholder, fallback: center);
+
+                // Smaller radius for nested cycles
+                float subRadius = Mathf.Max(radius * RadiusScale, MinRadius);
+
+                GenerateConstraints(sub, placeholderPos, subRadius, constraints, boundsOut);
             }
         }
 
-        private static void GenerateConstraintsForCycle(
-            CycleLayoutNode cycleNode,
+        private static void AddCircularConstraints(
+            List<CycleNode> nodes,
+            Vector2 center,
+            float radius,
             List<LayoutConstraint> constraints)
         {
-            if (cycleNode.cycle == null)
+            if (nodes == null || nodes.Count == 0)
                 return;
 
-            // Analyze cycle structure to determine layout strategy
-            var analysis = AnalyzeCycleStructure(cycleNode.cycle);
+            // Filter nulls
+            var valid = new List<CycleNode>();
+            foreach (var n in nodes)
+                if (n != null) valid.Add(n);
 
-            // Generate constraints based on structure
-            if (analysis.IsLinearPath)
+            int count = valid.Count;
+            if (count == 0) return;
+
+            // Enforce minimum spacing by increasing radius if needed
+            float minRadiusForSpacing = (count * MinNodeSpacing) / (2f * Mathf.PI);
+            float usedRadius = Mathf.Max(radius, minRadiusForSpacing, MinRadius);
+
+            for (int i = 0; i < count; i++)
             {
-                GenerateLinearPathConstraints(cycleNode, constraints);
-            }
-            else if (analysis.HasParallelPaths)
-            {
-                GenerateParallelPathsConstraints(cycleNode, constraints, analysis.PathCount);
-            }
-            else if (analysis.IsCyclic)
-            {
-                GenerateCyclicConstraints(cycleNode, constraints);
-            }
-            else
-            {
-                // Default: Force-directed layout
-                GenerateDefaultConstraints(cycleNode, constraints);
+                float angle = (i / (float)count) * Mathf.PI * 2f;
+
+                constraints.Add(new LayoutConstraint
+                {
+                    node = valid[i],
+                    type = ConstraintType.OnCircle,
+                    center = center,
+                    radius = usedRadius,
+                    angle = angle,
+                    priority = 10
+                });
             }
         }
 
-        /// <summary>
-        /// Analyze the structure of a cycle to determine layout strategy
-        /// </summary>
-        private static CycleStructureAnalysis AnalyzeCycleStructure(DungeonCycle cycle)
+        private static Vector2 GetConstraintPositionForNode(List<LayoutConstraint> constraints, CycleNode node, Vector2 fallback)
         {
-            var analysis = new CycleStructureAnalysis();
+            if (constraints == null || node == null)
+                return fallback;
 
-            if (cycle == null || cycle.nodes == null || cycle.edges == null)
-                return analysis;
-
-            int nodeCount = cycle.nodes.Count;
-            int edgeCount = cycle.edges.Count;
-
-            // Count paths between start and goal
-            var pathsBetweenStartGoal = CountPathsBetweenNodes(cycle, cycle.startNode, cycle.goalNode);
-
-            // Detect structure patterns
-            analysis.PathCount = pathsBetweenStartGoal;
-            analysis.HasParallelPaths = pathsBetweenStartGoal > 1;
-            analysis.IsLinearPath = pathsBetweenStartGoal == 1 && edgeCount == nodeCount - 1;
-            analysis.IsCyclic = HasCycle(cycle);
-            analysis.NodeCount = nodeCount;
-            analysis.EdgeCount = edgeCount;
-
-            return analysis;
-        }
-
-        private class CycleStructureAnalysis
-        {
-            public bool IsLinearPath;
-            public bool HasParallelPaths;
-            public bool IsCyclic;
-            public int PathCount;
-            public int NodeCount;
-            public int EdgeCount;
-        }
-
-        private static int CountPathsBetweenNodes(DungeonCycle cycle, CycleNode start, CycleNode goal)
-        {
-            if (start == null || goal == null)
-                return 0;
-
-            // Simple BFS to count distinct paths
-            var visited = new HashSet<CycleNode>();
-            var queue = new Queue<CycleNode>();
-            queue.Enqueue(start);
-
-            int pathCount = 0;
-
-            // Find immediate neighbors of start
-            var startNeighbors = new List<CycleNode>();
-            foreach (var edge in cycle.edges)
+            for (int i = constraints.Count - 1; i >= 0; i--)
             {
-                if (edge.from == start && edge.to != start)
-                    startNeighbors.Add(edge.to);
-                if (edge.bidirectional && edge.to == start && edge.from != start)
-                    startNeighbors.Add(edge.from);
+                var c = constraints[i];
+                if (c != null && c.node == node)
+                {
+                    // Approximate where this constraint will resolve
+                    if (c.type == ConstraintType.Fixed) return c.position;
+                    if (c.type == ConstraintType.OnCircle)
+                        return c.center + new Vector2(Mathf.Cos(c.angle), Mathf.Sin(c.angle)) * c.radius;
+                    if (c.type == ConstraintType.RelativeTo && c.anchor != null)
+                        return fallback + c.offset;
+                }
             }
 
-            // Each distinct neighbor that can reach goal is a path
-            foreach (var neighbor in startNeighbors)
-            {
-                if (CanReach(cycle, neighbor, goal, new HashSet<CycleNode> { start }))
-                    pathCount++;
-            }
-
-            return pathCount;
+            return fallback;
         }
 
         private static bool CanReach(DungeonCycle cycle, CycleNode from, CycleNode to, HashSet<CycleNode> visited)
@@ -286,420 +283,6 @@ namespace DunGen.Editor
             return false;
         }
 
-        private static bool HasCycle(DungeonCycle cycle)
-        {
-            // Simple cycle detection
-            if (cycle.edges == null)
-                return false;
-
-            foreach (var edge in cycle.edges)
-            {
-                if (edge.bidirectional || edge.from == edge.to)
-                    return true;
-            }
-
-            return false;
-        }
-
-        // =========================================================
-        // SIMPLIFIED CONSTRAINT GENERATORS (Structure-Based)
-        // =========================================================
-
-        /// <summary>
-        /// Generate constraints for a linear path (START ? nodes ? GOAL)
-        /// </summary>
-        private static void GenerateLinearPathConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.5f;
-
-            // Horizontal layout: START on left, GOAL on right
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // Space middle nodes evenly
-            var middleNodes = GetMiddleNodes(cycle);
-            int count = middleNodes.Count;
-
-            for (int i = 0; i < count; i++)
-            {
-                float t = (i + 1f) / (count + 1f); // Evenly spaced between 0 and 1
-                float x = Mathf.Lerp(-r, r, t);
-                AddFixedConstraint(constraints, middleNodes[i], cycleNode.center + new Vector2(x, 0), priority: 80);
-            }
-        }
-
-        /// <summary>
-        /// Generate constraints for parallel paths (multiple routes from START to GOAL)
-        /// </summary>
-        private static void GenerateParallelPathsConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints, int pathCount)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            // START and GOAL on horizontal axis
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // Distribute paths vertically
-            var sites = GetRewriteSites(cycle);
-            int siteCount = Mathf.Min(sites.Count, pathCount);
-
-            for (int i = 0; i < siteCount; i++)
-            {
-                float yOffset = (i - (siteCount - 1) * 0.5f) * (r * 1.6f / siteCount);
-                AddFixedConstraint(constraints, sites[i], cycleNode.center + new Vector2(0, yOffset), priority: 90);
-            }
-        }
-
-        /// <summary>
-        /// Generate constraints for cyclic structures (loops, circuits)
-        /// </summary>
-        private static void GenerateCyclicConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.5f;
-
-            // Circular layout
-            var allNodes = cycle.nodes;
-            int nodeCount = allNodes.Count;
-
-            for (int i = 0; i < nodeCount; i++)
-            {
-                float angle = (i / (float)nodeCount) * Mathf.PI * 2f - Mathf.PI * 0.5f; // Start at top
-                Vector2 pos = cycleNode.center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * r;
-
-                int priority = 90;
-                if (allNodes[i] == cycle.startNode || allNodes[i] == cycle.goalNode)
-                    priority = 100; // Higher priority for start/goal
-
-                AddFixedConstraint(constraints, allNodes[i], pos, priority);
-            }
-        }
-
-        /// <summary>
-        /// Get nodes that are neither start nor goal
-        /// </summary>
-        private static List<CycleNode> GetMiddleNodes(DungeonCycle cycle)
-        {
-            var middle = new List<CycleNode>();
-
-            if (cycle == null || cycle.nodes == null)
-                return middle;
-
-            foreach (var node in cycle.nodes)
-            {
-                if (node != cycle.startNode && node != cycle.goalNode)
-                    middle.Add(node);
-            }
-
-            return middle;
-        }
-
-        // =========================================================
-        // OLD TYPE-SPECIFIC CONSTRAINT GENERATORS (DEPRECATED)
-        // These are kept for reference but no longer used.
-        // The system now uses structure-based analysis instead.
-        // =========================================================
-
-        private static void GenerateTwoAlternativePathsConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            // Start and Goal on horizontal axis
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // Two paths above and below
-            var sites = GetRewriteSites(cycle);
-            if (sites.Count >= 1)
-                AddFixedConstraint(constraints, sites[0], cycleNode.center + new Vector2(-r * 0.2f, r * 0.8f), priority: 90);
-            if (sites.Count >= 2)
-                AddFixedConstraint(constraints, sites[1], cycleNode.center + new Vector2(-r * 0.2f, -r * 0.8f), priority: 90);
-        }
-
-        private static void GenerateTwoKeysConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.5f;
-
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // FIXED: Layout the path rewrite sites instead of key nodes (keys are now on edges)
-            var sites = GetRewriteSites(cycle);
-            if (sites.Count >= 1)
-                AddFixedConstraint(constraints, sites[0], cycleNode.center + Vector2.up * r * 0.85f, priority: 90);
-            if (sites.Count >= 2)
-                AddFixedConstraint(constraints, sites[1], cycleNode.center + Vector2.down * r * 0.85f, priority: 90);
-        }
-
-        private static void GenerateHiddenShortcutConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // Secret path below
-            var secretNode = FindNodeWithRole(cycle, NodeRoleType.Secret);
-            if (secretNode != null)
-                AddFixedConstraint(constraints, secretNode, cycleNode.center + Vector2.down * r * 0.7f, priority: 90);
-
-            // Remaining nodes on upper path
-            var remaining = GetRemainingNodes(cycle, constraints);
-            AddLineConstraints(constraints, remaining,
-                cycleNode.center + new Vector2(-r * 0.5f, r * 0.6f),
-                cycleNode.center + new Vector2(r * 0.5f, r * 0.6f),
-                priority: 80);
-        }
-
-        private static void GenerateForeshadowingLoopConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.5f;
-
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            // Sites in bottom arc
-            var sites = GetRewriteSites(cycle);
-            for (int i = 0; i < sites.Count; i++)
-            {
-                float angle = Mathf.PI + (i + 1) * Mathf.PI / (sites.Count + 1);
-                AddCircleConstraint(constraints, sites[i], cycleNode.center, r * 0.9f, angle, priority: 80);
-            }
-        }
-
-        private static void GenerateSimpleLockAndKeyConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            var orderedNodes = new List<CycleNode>();
-            orderedNodes.Add(cycle.startNode);
-            orderedNodes.AddRange(GetRewriteSites(cycle));
-            orderedNodes.Add(cycle.goalNode);
-
-            // FIXED: Key room is already in the rewrite sites, no need to find it separately
-            // The layout now includes: start -> site(s) -> goal -> keyRoom (all from rewrite sites)
-
-            AddLineConstraints(constraints, orderedNodes,
-                cycleNode.center + Vector2.left * r,
-                cycleNode.center + Vector2.right * r,
-                priority: 90);
-        }
-
-        private static void GenerateDangerousRouteConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r, priority: 100);
-
-            var dangerNode = FindNodeWithRole(cycle, NodeRoleType.Danger);
-            if (dangerNode != null)
-                AddFixedConstraint(constraints, dangerNode, cycleNode.center + Vector2.down * r * 0.65f, priority: 90);
-
-            // Safe path on top
-            var sites = GetRewriteSites(cycle);
-            AddLineConstraints(constraints, sites,
-                cycleNode.center + new Vector2(-r * 0.3f, r * 0.75f),
-                cycleNode.center + new Vector2(r * 0.3f, r * 0.75f),
-                priority: 80);
-        }
-
-        private static void GenerateLockAndKeyCycleConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            var orderedNodes = new List<CycleNode>();
-
-            orderedNodes.Add(cycle.startNode);
-            orderedNodes.Add(cycle.goalNode);
-            orderedNodes.AddRange(GetRewriteSites(cycle));
-
-            // FIXED: Key room is already in the rewrite sites, no need to find it separately
-            // The circular layout will include: start -> goal -> site1 -> site2 -> keyRoom (all sites)
-
-            AddCircularConstraints(constraints, orderedNodes, cycleNode.center, cycleNode.radius * 0.5f, priority: 90);
-        }
-
-        private static void GenerateBlockedRetreatConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            var orderedNodes = new List<CycleNode>();
-
-            orderedNodes.Add(cycle.startNode);
-            orderedNodes.Add(cycle.goalNode);
-
-            var barrierNode = FindNodeWithRole(cycle, NodeRoleType.Barrier);
-            if (barrierNode != null)
-                orderedNodes.Add(barrierNode);
-
-            orderedNodes.AddRange(GetRewriteSites(cycle));
-
-            AddCircularConstraints(constraints, orderedNodes, cycleNode.center, cycleNode.radius * 0.5f, priority: 90);
-        }
-
-        private static void GenerateMonsterPatrolConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            AddCircularConstraints(constraints, cycle.nodes, cycleNode.center, cycleNode.radius * 0.5f, priority: 90);
-        }
-
-        private static void GenerateAlteredReturnConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            AddCircularConstraints(constraints, cycle.nodes, cycleNode.center, cycleNode.radius * 0.4f, priority: 90);
-        }
-
-        private static void GenerateFalseGoalConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            var orderedNodes = new List<CycleNode>();
-            orderedNodes.Add(cycle.startNode);
-
-            var falseGoal = FindNodeWithRole(cycle, NodeRoleType.FalseGoal);
-            if (falseGoal != null)
-                orderedNodes.Add(falseGoal);
-
-            orderedNodes.AddRange(GetRewriteSites(cycle));
-            orderedNodes.Add(cycle.goalNode);
-
-            AddLineConstraints(constraints, orderedNodes,
-                cycleNode.center + Vector2.left * r,
-                cycleNode.center + Vector2.right * r,
-                priority: 90);
-        }
-
-        private static void GenerateGambitConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            float r = cycleNode.radius * 0.45f;
-
-            AddFixedConstraint(constraints, cycle.startNode, cycleNode.center + Vector2.left * r, priority: 100);
-            AddFixedConstraint(constraints, cycle.goalNode, cycleNode.center + Vector2.right * r * 0.6f, priority: 100);
-
-            var sites = GetRewriteSites(cycle);
-            if (sites.Count > 0)
-                AddFixedConstraint(constraints, sites[0], cycleNode.center + Vector2.left * r * 0.3f, priority: 90);
-
-            var dangerNode = FindNodeWithRole(cycle, NodeRoleType.Danger);
-            var rewardNode = FindNodeWithRole(cycle, NodeRoleType.Reward);
-
-            if (dangerNode != null)
-                AddFixedConstraint(constraints, dangerNode, cycleNode.center + new Vector2(r * 0.6f, -r * 0.8f), priority: 80);
-            if (rewardNode != null)
-                AddFixedConstraint(constraints, rewardNode, cycleNode.center + new Vector2(r * 1.1f, -r * 0.8f), priority: 80);
-        }
-
-        private static void GenerateDefaultConstraints(CycleLayoutNode cycleNode, List<LayoutConstraint> constraints)
-        {
-            var cycle = cycleNode.cycle;
-            if (cycle != null)
-                AddCircularConstraints(constraints, cycle.nodes, cycleNode.center, cycleNode.radius * 0.5f, priority: 90);
-        }
-
-        // =========================================================
-        // CONSTRAINT HELPERS
-        // =========================================================
-
-        private static void AddFixedConstraint(List<LayoutConstraint> constraints, CycleNode node, Vector2 position, int priority)
-        {
-            if (node == null) return;
-            constraints.Add(new LayoutConstraint
-            {
-                node = node,
-                type = ConstraintType.Fixed,
-                position = position,
-                priority = priority
-            });
-        }
-
-        private static void AddCircleConstraint(List<LayoutConstraint> constraints, CycleNode node, Vector2 center, float radius, float angle, int priority)
-        {
-            if (node == null) return;
-            constraints.Add(new LayoutConstraint
-            {
-                node = node,
-                type = ConstraintType.OnCircle,
-                center = center,
-                radius = radius,
-                angle = angle,
-                priority = priority
-            });
-        }
-
-        private static void AddCircularConstraints(List<LayoutConstraint> constraints, List<CycleNode> nodes, Vector2 center, float radius, int priority)
-        {
-            if (nodes == null) return;
-
-            int validCount = 0;
-            foreach (var node in nodes)
-            {
-                if (node != null && !HasConstraint(constraints, node))
-                    validCount++;
-            }
-
-            if (validCount == 0) return;
-
-            float angleStep = (Mathf.PI * 2f) / validCount;
-            int index = 0;
-
-            foreach (var node in nodes)
-            {
-                if (node == null || HasConstraint(constraints, node)) continue;
-
-                float angle = index * angleStep - Mathf.PI * 0.5f;
-                AddCircleConstraint(constraints, node, center, radius, angle, priority);
-                index++;
-            }
-        }
-
-        private static void AddLineConstraints(List<LayoutConstraint> constraints, List<CycleNode> nodes, Vector2 start, Vector2 end, int priority)
-        {
-            if (nodes == null || nodes.Count == 0) return;
-
-            // Filter out nodes that already have constraints
-            var validNodes = new List<CycleNode>();
-            foreach (var node in nodes)
-            {
-                if (node != null && !HasConstraint(constraints, node))
-                    validNodes.Add(node);
-            }
-
-            if (validNodes.Count == 0) return;
-
-            for (int i = 0; i < validNodes.Count; i++)
-            {
-                float t = validNodes.Count == 1 ? 0.5f : i / (float)(validNodes.Count - 1);
-                constraints.Add(new LayoutConstraint
-                {
-                    node = validNodes[i],
-                    type = ConstraintType.OnLine,
-                    lineStart = start,
-                    lineEnd = end,
-                    lineT = t,
-                    priority = priority
-                });
-            }
-        }
-
-        private static bool HasConstraint(List<LayoutConstraint> constraints, CycleNode node)
-        {
-            foreach (var c in constraints)
-            {
-                if (c.node == node)
-                    return true;
-            }
-            return false;
-        }
-
         // =========================================================
         // CONSTRAINT RESOLUTION
         // =========================================================
@@ -707,37 +290,45 @@ namespace DunGen.Editor
         private static Dictionary<CycleNode, Vector2> ResolveConstraints(List<LayoutConstraint> constraints, float nodeRadius)
         {
             var positions = new Dictionary<CycleNode, Vector2>();
+            if (constraints == null) return positions;
 
-            foreach (var constraint in constraints)
+            // First pass: compute initial positions from constraint definitions
+            foreach (var c in constraints)
             {
-                if (constraint.node == null) continue;
+                if (c == null || c.node == null) continue;
 
-                Vector2 pos = ResolveConstraintPosition(constraint);
-                positions[constraint.node] = pos;
+                Vector2 p = Vector2.zero;
+
+                switch (c.type)
+                {
+                    case ConstraintType.Fixed:
+                        p = c.position;
+                        break;
+
+                    case ConstraintType.OnCircle:
+                        p = c.center + new Vector2(Mathf.Cos(c.angle), Mathf.Sin(c.angle)) * c.radius;
+                        break;
+
+                    case ConstraintType.RelativeTo:
+                        if (c.anchor != null && positions.TryGetValue(c.anchor, out var ap))
+                            p = ap + c.offset;
+                        else
+                            p = c.offset;
+                        break;
+
+                    case ConstraintType.OnLine:
+                        p = Vector2.Lerp(c.lineStart, c.lineEnd, Mathf.Clamp01(c.lineT));
+                        break;
+
+                    default:
+                        p = Vector2.zero;
+                        break;
+                }
+
+                positions[c.node] = p;
             }
 
             return positions;
-        }
-
-        private static Vector2 ResolveConstraintPosition(LayoutConstraint constraint)
-        {
-            switch (constraint.type)
-            {
-                case ConstraintType.Fixed:
-                    return constraint.position;
-
-                case ConstraintType.OnCircle:
-                    return constraint.center + new Vector2(
-                        Mathf.Cos(constraint.angle) * constraint.radius,
-                        Mathf.Sin(constraint.angle) * constraint.radius
-                    );
-
-                case ConstraintType.OnLine:
-                    return Vector2.Lerp(constraint.lineStart, constraint.lineEnd, constraint.lineT);
-
-                default:
-                    return Vector2.zero;
-            }
         }
 
         // =========================================================
@@ -746,104 +337,54 @@ namespace DunGen.Editor
 
         private static void ResolveOverlaps(Dictionary<CycleNode, Vector2> positions, float nodeRadius)
         {
-            float minDist = MinNodeSpacing;
+            if (positions == null || positions.Count < 2)
+                return;
+
+            float minDist = nodeRadius * 2.2f;
+
             var nodes = new List<CycleNode>(positions.Keys);
 
             for (int iter = 0; iter < MaxOverlapIterations; iter++)
             {
-                bool hadOverlap = false;
+                bool anyMoved = false;
 
                 for (int i = 0; i < nodes.Count; i++)
                 {
+                    var a = nodes[i];
+                    if (a == null) continue;
+
                     for (int j = i + 1; j < nodes.Count; j++)
                     {
-                        var nodeA = nodes[i];
-                        var nodeB = nodes[j];
+                        var b = nodes[j];
+                        if (b == null) continue;
 
-                        Vector2 posA = positions[nodeA];
-                        Vector2 posB = positions[nodeB];
+                        Vector2 pa = positions[a];
+                        Vector2 pb = positions[b];
 
-                        Vector2 delta = posB - posA;
-                        float dist = delta.magnitude;
+                        Vector2 d = pb - pa;
+                        float dist = d.magnitude;
 
-                        if (dist < minDist && dist > 0.001f)
+                        if (dist < 0.0001f)
                         {
-                            hadOverlap = true;
+                            d = new Vector2(1f, 0f);
+                            dist = 0.0001f;
+                        }
 
-                            // Push apart
-                            Vector2 push = delta.normalized * (minDist - dist) * 0.5f * OverlapPushForce;
-                            positions[nodeA] -= push;
-                            positions[nodeB] += push;
+                        if (dist < minDist)
+                        {
+                            float push = (minDist - dist) * OverlapPushForce;
+                            Vector2 dir = d / dist;
+
+                            positions[a] = pa - dir * push * 0.5f;
+                            positions[b] = pb + dir * push * 0.5f;
+                            anyMoved = true;
                         }
                     }
                 }
 
-                if (!hadOverlap)
+                if (!anyMoved)
                     break;
             }
-        }
-
-        // =========================================================
-        // NODE FINDING HELPERS
-        // =========================================================
-
-        private static CycleNode FindNodeWithRole(DungeonCycle cycle, NodeRoleType roleType)
-        {
-            if (cycle == null || cycle.nodes == null)
-                return null;
-
-            foreach (var node in cycle.nodes)
-            {
-                if (node != null && node.HasRole(roleType))
-                    return node;
-            }
-
-            return null;
-        }
-
-        private static List<CycleNode> FindNodesWithRole(DungeonCycle cycle, NodeRoleType roleType)
-        {
-            var result = new List<CycleNode>();
-            if (cycle == null || cycle.nodes == null)
-                return result;
-
-            foreach (var node in cycle.nodes)
-            {
-                if (node != null && node.HasRole(roleType))
-                    result.Add(node);
-            }
-
-            return result;
-        }
-
-        private static List<CycleNode> GetRewriteSites(DungeonCycle cycle)
-        {
-            var result = new List<CycleNode>();
-            if (cycle == null || cycle.rewriteSites == null)
-                return result;
-
-            foreach (var site in cycle.rewriteSites)
-            {
-                if (site != null && site.placeholder != null)
-                    result.Add(site.placeholder);
-            }
-
-            return result;
-        }
-
-        private static List<CycleNode> GetRemainingNodes(DungeonCycle cycle, List<LayoutConstraint> existingConstraints)
-        {
-            var result = new List<CycleNode>();
-            if (cycle == null || cycle.nodes == null)
-                return result;
-
-            foreach (var node in cycle.nodes)
-            {
-                if (node != null && !HasConstraint(existingConstraints, node))
-                    result.Add(node);
-            }
-
-            return result;
         }
     }
 }
