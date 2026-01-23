@@ -170,46 +170,14 @@ namespace DunGen.Editor
         // =========================================================
         private void DrawInspector(Rect inspectorRect)
         {
-            GUILayout.BeginArea(inspectorRect);
-
-            GUILayout.Label("Preview Stats", EditorStyles.boldLabel);
-
-            if (_layoutResult != null)
-            {
-                GUILayout.Label($"Total Cycles: {_layoutResult.allCycles.Count}");
-                GUILayout.Label($"Total Nodes: {_layoutResult.allPositions.Count}");
-                GUILayout.Label($"Max Depth: {GetMaxDepth(_layoutResult)}");
-            }
-
-            if (_previewController.SelectedNode != null)
-            {
-                GUILayout.Space(10);
-                GUILayout.Label("Selected Node", EditorStyles.boldLabel);
-                GUILayout.Label($"Label: {_previewController.SelectedNode.label}");
-
-                if (_previewController.SelectedNode.roles != null && _previewController.SelectedNode.roles.Count > 0)
-                {
-                    GUILayout.Label("Roles:");
-                    foreach (var role in _previewController.SelectedNode.roles)
-                    {
-                        if (role != null)
-                            GUILayout.Label($"  • {role.type}");
-                    }
-                }
-            }
-
-            GUILayout.EndArea();
-        }
-
-        private int GetMaxDepth(PreviewLayoutEngine.LayoutResult layout)
-        {
-            int max = 0;
-            foreach (var cycle in layout.allCycles)
-            {
-                if (cycle.depth > max)
-                    max = cycle.depth;
-            }
-            return max;
+            // Delegate to PreviewInspector (like AuthorCanvas does with AuthorInspector)
+            _inspector.DrawInspector(
+                inspectorRect,
+                _layoutResult,
+                _previewController.SelectedNode,
+                generatedCycle,
+                currentSeed
+            );
         }
 
         // =========================================================
@@ -276,7 +244,7 @@ namespace DunGen.Editor
                 Debug.Log($"[Preview] Layout complete:");
                 Debug.Log($"  - Total cycles: {_layoutResult.allCycles.Count}");
                 Debug.Log($"  - Total nodes: {_layoutResult.allPositions.Count}");
-                Debug.Log($"  - Max depth: {GetMaxDepth(_layoutResult)}");
+                Debug.Log($"  - Max depth: {_inspector.GetMaxDepth(_layoutResult)}");
 
                 // Update controller
                 _previewController.SetCycle(generatedCycle);
