@@ -31,7 +31,7 @@ namespace DunGen
         /// <summary>
         /// Load the cycle from file (uses cache if available).
         /// </summary>
-        public (DungeonCycle cycle, System.Collections.Generic.Dictionary<CycleNode, Vector2> positions) Load()
+        public (DungeonCycle cycle, System.Collections.Generic.Dictionary<GraphNode, Vector2> positions) Load()
         {
             if (_cacheValid && _cachedCycle != null)
             {
@@ -39,7 +39,7 @@ namespace DunGen
                 return (DeepCopy(_cachedCycle), null); // Positions not cached
             }
 
-            var (cycle, positions, _) = CycleTemplateIO.Load(filePath);
+            var (cycle, positions, _) = CycleTemplate.Load(filePath);
 
             if (cycle != null)
             {
@@ -87,7 +87,7 @@ namespace DunGen
             if (source == null) return null;
 
             var copy = new DungeonCycle();
-            var nodeMap = new System.Collections.Generic.Dictionary<CycleNode, CycleNode>();
+            var nodeMap = new System.Collections.Generic.Dictionary<GraphNode, GraphNode>();
 
             if (source.nodes != null)
             {
@@ -95,7 +95,7 @@ namespace DunGen
                 {
                     if (oldNode != null)
                     {
-                        var newNode = new CycleNode
+                        var newNode = new GraphNode
                         {
                             label = oldNode.label,
                             grantedKeys = oldNode.grantedKeys != null
@@ -126,7 +126,7 @@ namespace DunGen
                         nodeMap.ContainsKey(oldEdge.from) &&
                         nodeMap.ContainsKey(oldEdge.to))
                     {
-                        var newEdge = new CycleEdge(
+                        var newEdge = new GraphEdge(
                             nodeMap[oldEdge.from],
                             nodeMap[oldEdge.to],
                             oldEdge.bidirectional,

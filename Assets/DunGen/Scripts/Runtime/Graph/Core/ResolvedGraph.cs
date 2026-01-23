@@ -6,23 +6,23 @@ namespace DunGen
     /// A flattened graph containing all nodes and edges from a potentially nested cycle structure.
     /// Replaces the old "RewrittenGraph" concept - now just a simple flat collection.
     /// </summary>
-    public sealed class FlatGraph
+    public sealed class ResolvedGraph
     {
-        public readonly List<CycleNode> nodes;
-        public readonly List<CycleEdge> edges;
+        public readonly List<GraphNode> nodes;
+        public readonly List<GraphEdge> edges;
 
-        public FlatGraph(List<CycleNode> nodes, List<CycleEdge> edges)
+        public ResolvedGraph(List<GraphNode> nodes, List<GraphEdge> edges)
         {
-            this.nodes = nodes ?? new List<CycleNode>();
-            this.edges = edges ?? new List<CycleEdge>();
+            this.nodes = nodes ?? new List<GraphNode>();
+            this.edges = edges ?? new List<GraphEdge>();
         }
 
         /// <summary>
         /// Create an empty flat graph.
         /// </summary>
-        public static FlatGraph Empty()
+        public static ResolvedGraph Empty()
         {
-            return new FlatGraph(new List<CycleNode>(), new List<CycleEdge>());
+            return new ResolvedGraph(new List<GraphNode>(), new List<GraphEdge>());
         }
 
         /// <summary>
@@ -43,7 +43,7 @@ namespace DunGen
         /// <summary>
         /// Find a node by label (convenience method).
         /// </summary>
-        public CycleNode FindNode(string label)
+        public GraphNode FindNode(string label)
         {
             if (nodes == null || string.IsNullOrEmpty(label))
                 return null;
@@ -60,9 +60,9 @@ namespace DunGen
         /// <summary>
         /// Find all nodes with a specific role.
         /// </summary>
-        public List<CycleNode> FindNodesWithRole(NodeRoleType roleType)
+        public List<GraphNode> FindNodesWithRole(NodeRoleType roleType)
         {
-            var result = new List<CycleNode>();
+            var result = new List<GraphNode>();
 
             if (nodes == null)
                 return result;
@@ -79,9 +79,9 @@ namespace DunGen
         /// <summary>
         /// Get all edges connected to a specific node.
         /// </summary>
-        public List<CycleEdge> GetConnectedEdges(CycleNode node)
+        public List<GraphEdge> GetConnectedEdges(GraphNode node)
         {
-            var result = new List<CycleEdge>();
+            var result = new List<GraphEdge>();
 
             if (edges == null || node == null)
                 return result;

@@ -19,7 +19,7 @@ namespace DunGen.Editor
         /// Author mode: Manual positions set by user.
         /// Preview mode: Auto-computed positions.
         /// </summary>
-        Dictionary<CycleNode, Vector2> GetNodePositions();
+        Dictionary<GraphNode, Vector2> GetNodePositions();
 
         /// <summary>
         /// Called when entering this mode.

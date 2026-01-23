@@ -5,7 +5,7 @@ using UnityEngine;
 namespace DunGen
 {
     [System.Serializable]
-    public class CycleNode
+    public class GraphNode
     {
         // Presentation only (editor)
         public string label = "";
@@ -16,7 +16,7 @@ namespace DunGen
         // KEYS: Keys granted when this node is visited/completed
         public List<int> grantedKeys = new List<int>();
 
-        public CycleNode()
+        public GraphNode()
         {
             // Empty constructor for manual authoring
         }

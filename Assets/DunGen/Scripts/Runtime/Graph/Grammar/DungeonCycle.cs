@@ -11,11 +11,11 @@ namespace DunGen
     [System.Serializable]
     public class DungeonCycle
     {
-        public CycleNode startNode;
-        public CycleNode goalNode;
+        public GraphNode startNode;
+        public GraphNode goalNode;
 
-        public List<CycleNode> nodes = new List<CycleNode>();
-        public List<CycleEdge> edges = new List<CycleEdge>();
+        public List<GraphNode> nodes = new List<GraphNode>();
+        public List<GraphEdge> edges = new List<GraphEdge>();
 
         // Nodes that can be rewritten into a replacement pattern
         public List<RewriteSite> rewriteSites = new List<RewriteSite>();

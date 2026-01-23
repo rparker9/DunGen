@@ -11,7 +11,7 @@ namespace DunGen
     [Serializable]
     public sealed class RewriteSite
     {
-        public CycleNode placeholder;
+        public GraphNode placeholder;
 
         // Template GUID (used during serialization)
         public string replacementTemplateGuid;
@@ -24,7 +24,7 @@ namespace DunGen
         [NonSerialized]
         public DungeonCycle replacementPattern;
 
-        public RewriteSite(CycleNode placeholder)
+        public RewriteSite(GraphNode placeholder)
         {
             this.placeholder = placeholder;
         }

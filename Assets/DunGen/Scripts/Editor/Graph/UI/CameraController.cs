@@ -90,7 +90,7 @@ namespace DunGen.Editor
         // BOUNDS CALCULATION
         // =========================================================
 
-        public static Rect CalculateWorldBounds(Dictionary<CycleNode, Vector2> positions, float nodeRadius)
+        public static Rect CalculateWorldBounds(Dictionary<GraphNode, Vector2> positions, float nodeRadius)
         {
             if (positions == null || positions.Count == 0)
                 return new Rect(0, 0, 0, 0);
@@ -98,7 +98,7 @@ namespace DunGen.Editor
             return CoordinateConverter.CalculateBounds(positions.Values, nodeRadius);
         }
 
-        public static Vector2 CalculateCentroid(Dictionary<CycleNode, Vector2> positions)
+        public static Vector2 CalculateCentroid(Dictionary<GraphNode, Vector2> positions)
         {
             if (positions == null || positions.Count == 0)
                 return Vector2.zero;

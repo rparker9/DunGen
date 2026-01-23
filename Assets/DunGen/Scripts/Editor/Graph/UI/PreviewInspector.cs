@@ -17,8 +17,8 @@ namespace DunGen.Editor
 
         public void DrawInspector(
             Rect rect,
-            FlatGraph flatGraph,
-            CycleNode selectedNode,
+            ResolvedGraph flatGraph,
+            GraphNode selectedNode,
             DungeonCycle overallCycle)
         {
             GUILayout.BeginArea(rect);
@@ -75,7 +75,7 @@ namespace DunGen.Editor
             GUILayout.EndArea();
         }
 
-        private void DrawSelectedNodeInfo(CycleNode selectedNode, DungeonCycle overallCycle, FlatGraph flatGraph)
+        private void DrawSelectedNodeInfo(GraphNode selectedNode, DungeonCycle overallCycle, ResolvedGraph flatGraph)
         {
             bool isSub = _styleProvider.IsSubcycleNode(selectedNode);
             bool isRewriteSite = FindRewriteSiteRecursive(overallCycle, selectedNode) != null;
@@ -113,7 +113,7 @@ namespace DunGen.Editor
             DrawConnectedEdges(selectedNode, flatGraph);
         }
 
-        private void DrawConnectedEdges(CycleNode selectedNode, FlatGraph flatGraph)
+        private void DrawConnectedEdges(GraphNode selectedNode, ResolvedGraph flatGraph)
         {
             if (flatGraph == null || flatGraph.edges == null || selectedNode == null)
             {
@@ -132,7 +132,7 @@ namespace DunGen.Editor
 
                 edgeCount++;
                 string direction = isOutgoing ? "?" : "?";
-                CycleNode otherNode = isOutgoing ? edge.to : edge.from;
+                GraphNode otherNode = isOutgoing ? edge.to : edge.from;
                 string otherLabel = _styleProvider.GetNodeLabel(otherNode);
                 string edgeDesc = $"{direction} {otherLabel}";
 
@@ -166,7 +166,7 @@ namespace DunGen.Editor
             }
         }
 
-        private static RewriteSite FindRewriteSiteRecursive(DungeonCycle pattern, CycleNode node)
+        private static RewriteSite FindRewriteSiteRecursive(DungeonCycle pattern, GraphNode node)
         {
             if (pattern == null || node == null || pattern.rewriteSites == null)
                 return null;

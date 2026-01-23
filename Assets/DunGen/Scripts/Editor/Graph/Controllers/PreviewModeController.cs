@@ -10,12 +10,12 @@ namespace DunGen.Editor
     public sealed class PreviewModeController : IModeController
     {
         private DungeonCycle _cycle;
-        private Dictionary<CycleNode, Vector2> _autoPositions = new Dictionary<CycleNode, Vector2>();
+        private Dictionary<GraphNode, Vector2> _autoPositions = new Dictionary<GraphNode, Vector2>();
         private float _nodeRadius;
-        private CycleNode _selectedNode;
+        private GraphNode _selectedNode;
         private int _currentSeed;
 
-        public CycleNode SelectedNode => _selectedNode;
+        public GraphNode SelectedNode => _selectedNode;
         public int CurrentSeed => _currentSeed;
 
         public PreviewModeController(float nodeRadius)
@@ -60,7 +60,7 @@ namespace DunGen.Editor
             }
         }
 
-        public Dictionary<CycleNode, Vector2> GetNodePositions()
+        public Dictionary<GraphNode, Vector2> GetNodePositions()
         {
             return _autoPositions;
         }
@@ -91,7 +91,7 @@ namespace DunGen.Editor
         // Helper Methods
         // =========================================================
 
-        private CycleNode HitTestNode(Vector2 screenPos, Rect canvasRect, CameraController camera)
+        private GraphNode HitTestNode(Vector2 screenPos, Rect canvasRect, CameraController camera)
         {
             float clickRadius = _nodeRadius * 1.2f;
 

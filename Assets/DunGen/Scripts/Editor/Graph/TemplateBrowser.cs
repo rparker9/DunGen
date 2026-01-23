@@ -324,7 +324,7 @@ namespace DunGen.Editor
         {
             try
             {
-                var (cycle, positions, metadata) = CycleTemplateIO.Load(template.filePath);
+                var (cycle, positions, metadata) = CycleTemplate.Load(template.filePath);
 
                 if (cycle == null)
                 {
@@ -404,7 +404,7 @@ namespace DunGen.Editor
             try
             {
                 // Load template file
-                var (cycle, positions, metadata) = CycleTemplateIO.Load(template.filePath);
+                var (cycle, positions, metadata) = CycleTemplate.Load(template.filePath);
 
                 if (cycle != null)
                 {

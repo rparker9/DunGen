@@ -4,10 +4,10 @@ using System.Collections.Generic;
 namespace DunGen
 {
     [Serializable]
-    public sealed class CycleEdge
+    public sealed class GraphEdge
     {
-        public CycleNode from;
-        public CycleNode to;
+        public GraphNode from;
+        public GraphNode to;
         public bool bidirectional;
         public bool isBlocked;
         public bool hasSightline;
@@ -15,7 +15,7 @@ namespace DunGen
         // LOCKS: Keys required to traverse this edge
         public List<int> requiredKeys;
 
-        public CycleEdge(CycleNode from, CycleNode to, bool bidirectional = true, bool isBlocked = false, bool hasSightline = false)
+        public GraphEdge(GraphNode from, GraphNode to, bool bidirectional = true, bool isBlocked = false, bool hasSightline = false)
         {
             this.from = from;
             this.to = to;

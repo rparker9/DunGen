@@ -22,22 +22,22 @@ namespace DunGen.Editor
         }
 
         private DungeonCycle _cycle;
-        private Dictionary<CycleNode, Vector2> _manualPositions = new Dictionary<CycleNode, Vector2>();
+        private Dictionary<GraphNode, Vector2> _manualPositions = new Dictionary<GraphNode, Vector2>();
         private float _nodeRadius;
-        private CycleNode _selectedNode;
-        private CycleEdge _selectedEdge;
+        private GraphNode _selectedNode;
+        private GraphEdge _selectedEdge;
 
         // Dragging/connecting state
-        private CycleNode _draggedNode;
-        private CycleNode _connectFromNode;
+        private GraphNode _draggedNode;
+        private GraphNode _connectFromNode;
         private Vector2 _dragStartMousePos;
         private Vector2 _dragStartNodePos;
 
         // State machine
         private AuthorState _state = AuthorState.Idle;
 
-        public CycleNode SelectedNode => _selectedNode;
-        public CycleEdge SelectedEdge => _selectedEdge;
+        public GraphNode SelectedNode => _selectedNode;
+        public GraphEdge SelectedEdge => _selectedEdge;
 
         public AuthorModeController(float radius)
         {
@@ -78,7 +78,7 @@ namespace DunGen.Editor
             _state = AuthorState.PlacingNode;
         }
 
-        public void StartConnectingFrom(CycleNode fromNode)
+        public void StartConnectingFrom(GraphNode fromNode)
         {
             _connectFromNode = fromNode;
             _state = AuthorState.ConnectingEdge;
@@ -102,7 +102,7 @@ namespace DunGen.Editor
             _selectedNode = null;
         }
 
-        public void DeleteSelectedEdge(CycleEdge edge)
+        public void DeleteSelectedEdge(GraphEdge edge)
         {
             if (edge == null || _cycle == null)
                 return;
@@ -138,7 +138,7 @@ namespace DunGen.Editor
             }
         }
 
-        public Dictionary<CycleNode, Vector2> GetNodePositions()
+        public Dictionary<GraphNode, Vector2> GetNodePositions()
         {
             return _manualPositions;
         }
@@ -329,7 +329,7 @@ namespace DunGen.Editor
             if (_cycle == null)
                 return;
 
-            var newNode = new CycleNode();
+            var newNode = new GraphNode();
             newNode.label = $"Node {_cycle.nodes.Count}";
 
             _cycle.nodes.Add(newNode);
@@ -337,7 +337,7 @@ namespace DunGen.Editor
             _selectedNode = newNode;
         }
 
-        private void CreateEdge(CycleNode from, CycleNode to)
+        private void CreateEdge(GraphNode from, GraphNode to)
         {
             if (_cycle == null || from == null || to == null)
                 return;
@@ -353,7 +353,7 @@ namespace DunGen.Editor
                 }
             }
 
-            var newEdge = new CycleEdge(from, to, bidirectional: true);
+            var newEdge = new GraphEdge(from, to, bidirectional: true);
             _cycle.edges.Add(newEdge);
         }
 
@@ -361,7 +361,7 @@ namespace DunGen.Editor
         // Helper Methods
         // =========================================================
 
-        private CycleNode HitTestNode(Vector2 screenPos, Rect canvasRect, CameraController camera)
+        private GraphNode HitTestNode(Vector2 screenPos, Rect canvasRect, CameraController camera)
         {
             float clickRadius = _nodeRadius * 1.2f;
 
@@ -384,13 +384,13 @@ namespace DunGen.Editor
             return null;
         }
 
-        private CycleEdge HitTestEdge(Vector2 screenPos, Rect canvasRect, CameraController camera)
+        private GraphEdge HitTestEdge(Vector2 screenPos, Rect canvasRect, CameraController camera)
         {
             if (_cycle == null || _cycle.edges == null)
                 return null;
 
             float tolerance = 8f; // Pixels
-            CycleEdge closestEdge = null;
+            GraphEdge closestEdge = null;
             float closestDist = tolerance;
 
             foreach (var edge in _cycle.edges)

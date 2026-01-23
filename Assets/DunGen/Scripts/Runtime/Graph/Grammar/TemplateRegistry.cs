@@ -40,7 +40,7 @@ namespace DunGen
                 {
                     // Load metadata only (not full cycle)
                     string json = File.ReadAllText(filePath);
-                    var file = JsonUtility.FromJson<CycleTemplateIO.TemplateFile>(json);
+                    var file = JsonUtility.FromJson<CycleTemplate.TemplateFile>(json);
 
                     if (file != null && file.metadata != null)
                     {

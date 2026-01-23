@@ -5,17 +5,17 @@ using UnityEngine;
 namespace DunGen
 {
     /// <summary>
-    /// Procedurally generates dungeons by recursively applying cycle rewrites.
-    /// FIXED: Deep-copies cycles so nodes aren't shared between template and replacements.
+    /// Builds a nested dungeon grammar by choosing templates and populating rewrite sites.
+    /// Output is a DungeonCycle tree (not yet resolved/spliced).
     /// </summary>
-    public class ProceduralDungeonGenerator
+    public class DungeonGraphCompiler
     {
         private DungeonGenerationSettings _settings;
         private System.Random _rng;
         private int _currentDepth;
         private int _totalNodes;
 
-        public ProceduralDungeonGenerator(DungeonGenerationSettings settings)
+        public DungeonGraphCompiler(DungeonGenerationSettings settings)
         {
             _settings = settings;
         }
@@ -23,7 +23,7 @@ namespace DunGen
         /// <summary>
         /// Generate a complete dungeon cycle with nested rewrites
         /// </summary>
-        public DungeonCycle Generate(int seed = 0)
+        public DungeonCycle CompileCycle(int seed = 0)
         {
             // Initialize RNG
             int actualSeed = seed != 0 ? seed : _settings.seed != 0 ? _settings.seed : Environment.TickCount;
@@ -55,22 +55,22 @@ namespace DunGen
                 return null;
             }
 
-            // Deep-copy the root cycle (don't modify the loaded data!)
-            rootCycle = DeepCopyCycle(rootCycle);
+            // Clone the root cycle (don't modify the loaded data!)
+            rootCycle = CloneCycle(rootCycle);
             _totalNodes = rootCycle.nodes != null ? rootCycle.nodes.Count : 0;
             Debug.Log($"[ProceduralDungeonGenerator] Starting with template '{rootTemplateHandle.name}' ({_totalNodes} nodes)");
 
-            // Recursively apply rewrites
-            ApplyRewritesRecursive(rootCycle, 0);
+            // Recursively apply rewrites to compile the full cycle
+            CompileRewriteSitesRecursive(rootCycle, 0);
             Debug.Log($"[ProceduralDungeonGenerator] Generation complete. Total nodes: {_totalNodes}, Depth: {_currentDepth}");
 
             return rootCycle;
         }
 
         /// <summary>
-        /// Recursively apply rewrites to a cycle
+        /// Populate rewrite sites recursively across the cycle
         /// </summary>
-        private void ApplyRewritesRecursive(DungeonCycle cycle, int depth)
+        private void CompileRewriteSitesRecursive(DungeonCycle cycle, int depth)
         {
             if (cycle == null || cycle.rewriteSites == null || cycle.rewriteSites.Count == 0)
                 return;
@@ -140,8 +140,8 @@ namespace DunGen
                     continue;
                 }
 
-                // Deep-copy so each insertion gets unique nodes
-                var replacement = DeepCopyCycle(replacementCycle);
+                // Clone so each insertion gets unique nodes
+                var replacement = CloneCycle(replacementCycle);
 
                 // Apply the rewrite (runtime-only field now)
                 site.replacementPattern = replacement;
@@ -153,18 +153,20 @@ namespace DunGen
 
                 Debug.Log($"[ProceduralDungeonGenerator] Depth {depth}: Applied '{replacementHandle.name}' to '{site.placeholder.label}' (+{newNodes} nodes)");
 
-                // Recursively rewrite the replacement
-                ApplyRewritesRecursive(replacement, depth + 1);
+                // Populate and compile nested rewrites
+                CompileRewriteSitesRecursive(replacement, depth + 1);
             }
 
             _currentDepth = Mathf.Max(_currentDepth, depth);
         }
 
         /// <summary>
-        /// Deep-copy a cycle so each rewrite gets unique node instances.
-        /// This prevents the "skipped duplicate" issue in CycleFlattener.
+        /// Clone a cycle so each insertion gets unique node instances.
+        /// This prevents shared-node duplication issues when resolving to a single graph.
         /// </summary>
-        private DungeonCycle DeepCopyCycle(DungeonCycle source)
+        /// <param name="source"></param>
+        /// <returns></returns>
+        private DungeonCycle CloneCycle(DungeonCycle source)
         {
             if (source == null)
                 return null;
@@ -175,30 +177,30 @@ namespace DunGen
             copy.rewriteSites.Clear();
 
             // Create mapping from old nodes to new nodes
-            var nodeMap = new Dictionary<CycleNode, CycleNode>();
+            var nodeMap = new Dictionary<GraphNode, GraphNode>();
 
-            // Deep copy all nodes
+            // Clone all nodes
             if (source.nodes != null)
             {
                 foreach (var oldNode in source.nodes)
                 {
                     if (oldNode != null)
                     {
-                        var newNode = DeepCopyNode(oldNode);
+                        var newNode = CloneNode(oldNode);
                         copy.nodes.Add(newNode);
                         nodeMap[oldNode] = newNode;
                     }
                 }
             }
 
-            // Deep copy all edges (with remapped node references)
+            // Clone all edges (with remapped node references)
             if (source.edges != null)
             {
                 foreach (var oldEdge in source.edges)
                 {
                     if (oldEdge != null && nodeMap.ContainsKey(oldEdge.from) && nodeMap.ContainsKey(oldEdge.to))
                     {
-                        var newEdge = new CycleEdge(
+                        var newEdge = new GraphEdge(
                             nodeMap[oldEdge.from],
                             nodeMap[oldEdge.to],
                             oldEdge.bidirectional,
@@ -244,11 +246,11 @@ namespace DunGen
         }
 
         /// <summary>
-        /// Create a deep copy of a node
+        /// Clone a single graph node using deep copy
         /// </summary>
-        private static CycleNode DeepCopyNode(CycleNode source)
+        private static GraphNode CloneNode(GraphNode source)
         {
-            var copy = new CycleNode();
+            var copy = new GraphNode();
             copy.label = source.label;
 
             // Copy keys

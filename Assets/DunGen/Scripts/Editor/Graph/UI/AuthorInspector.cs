@@ -12,15 +12,15 @@ namespace DunGen.Editor
     public sealed class AuthorInspector
     {
         // Edge selection state
-        private CycleEdge _selectedEdge;
+        private GraphEdge _selectedEdge;
 
-        public CycleEdge SelectedEdge => _selectedEdge;
+        public GraphEdge SelectedEdge => _selectedEdge;
 
         public AuthorInspector()
         {
         }
 
-        public void SetSelectedEdge(CycleEdge edge)
+        public void SetSelectedEdge(GraphEdge edge)
         {
             _selectedEdge = edge;
         }
@@ -37,7 +37,7 @@ namespace DunGen.Editor
         public void DrawInspector(
             Rect rect,
             DungeonCycle currentTemplate,
-            CycleNode selectedNode,
+            GraphNode selectedNode,
             System.Action onTemplateChanged)
         {
             GUILayout.BeginArea(rect);
@@ -97,7 +97,7 @@ namespace DunGen.Editor
         // NODE EDITOR
         // =========================================================
 
-        private void DrawNodeEditor(CycleNode node, DungeonCycle template, System.Action onChanged)
+        private void DrawNodeEditor(GraphNode node, DungeonCycle template, System.Action onChanged)
         {
             EditorGUILayout.LabelField("Selected Node", EditorStyles.boldLabel);
 
@@ -133,7 +133,7 @@ namespace DunGen.Editor
             }
         }
 
-        private void DrawKeysEditor(CycleNode node)
+        private void DrawKeysEditor(GraphNode node)
         {
             EditorGUILayout.LabelField("Keys Granted", EditorStyles.boldLabel);
 
@@ -165,7 +165,7 @@ namespace DunGen.Editor
             }
         }
 
-        private void DrawRolesEditor(CycleNode node)
+        private void DrawRolesEditor(GraphNode node)
         {
             EditorGUILayout.LabelField("Additional Roles", EditorStyles.boldLabel);
 
@@ -227,7 +227,7 @@ namespace DunGen.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawSpecialPropertiesEditor(CycleNode node, DungeonCycle template)
+        private void DrawSpecialPropertiesEditor(GraphNode node, DungeonCycle template)
         {
             if (template == null)
                 return;
@@ -393,7 +393,7 @@ namespace DunGen.Editor
             }
         }
 
-        private void DrawConnectedEdges(CycleNode node, DungeonCycle template)
+        private void DrawConnectedEdges(GraphNode node, DungeonCycle template)
         {
             if (template == null || template.edges == null)
             {
@@ -415,7 +415,7 @@ namespace DunGen.Editor
                 edgeCount++;
 
                 string direction = isOutgoing ? " -> " : " <- ";
-                CycleNode otherNode = isOutgoing ? edge.to : edge.from;
+                GraphNode otherNode = isOutgoing ? edge.to : edge.from;
                 string otherLabel = otherNode != null && !string.IsNullOrEmpty(otherNode.label)
                     ? otherNode.label
                     : "?";
@@ -455,7 +455,7 @@ namespace DunGen.Editor
         // EDGE EDITOR
         // =========================================================
 
-        private void DrawEdgeEditor(CycleEdge edge, DungeonCycle template, System.Action onChanged)
+        private void DrawEdgeEditor(GraphEdge edge, DungeonCycle template, System.Action onChanged)
         {
             EditorGUILayout.LabelField("Selected Edge", EditorStyles.boldLabel);
 
@@ -507,7 +507,7 @@ namespace DunGen.Editor
             }
         }
 
-        private void DrawLocksEditor(CycleEdge edge)
+        private void DrawLocksEditor(GraphEdge edge)
         {
             EditorGUILayout.LabelField("Required Keys (Locks)", EditorStyles.boldLabel);
 

@@ -53,10 +53,10 @@ namespace DunGen.Editor
         /// </summary>
         private class LayoutConstraint
         {
-            public CycleNode node;
+            public GraphNode node;
             public ConstraintType type;
             public Vector2 position;         // For Fixed
-            public CycleNode anchor;         // For RelativeTo
+            public GraphNode anchor;         // For RelativeTo
             public Vector2 offset;           // For RelativeTo
             public Vector2 center;           // For OnCircle
             public float radius;             // For OnCircle
@@ -73,9 +73,9 @@ namespace DunGen.Editor
         private class CycleLayoutNode
         {
             public DungeonCycle cycle;
-            public List<CycleNode> ownedNodes = new List<CycleNode>();
+            public List<GraphNode> ownedNodes = new List<GraphNode>();
             public List<CycleLayoutNode> subcycles = new List<CycleLayoutNode>();
-            public Dictionary<CycleNode, CycleLayoutNode> placeholderToSubcycle = new Dictionary<CycleNode, CycleLayoutNode>();
+            public Dictionary<GraphNode, CycleLayoutNode> placeholderToSubcycle = new Dictionary<GraphNode, CycleLayoutNode>();
             public int depth;
             public Vector2 center;
             public float radius;
@@ -85,14 +85,14 @@ namespace DunGen.Editor
         // PUBLIC API
         // =========================================================
 
-        public static Dictionary<CycleNode, Vector2> ComputeLayout(
+        public static Dictionary<GraphNode, Vector2> ComputeLayout(
             DungeonCycle rootCycle,
             float nodeRadius)
         {
             return ComputeLayout(rootCycle, nodeRadius, out _);
         }
 
-        public static Dictionary<CycleNode, Vector2> ComputeLayout(
+        public static Dictionary<GraphNode, Vector2> ComputeLayout(
             DungeonCycle rootCycle,
             float nodeRadius,
             out List<CycleVisualBounds> cycleBounds)
@@ -100,7 +100,7 @@ namespace DunGen.Editor
             cycleBounds = new List<CycleVisualBounds>();
 
             if (rootCycle == null)
-                return new Dictionary<CycleNode, Vector2>();
+                return new Dictionary<GraphNode, Vector2>();
 
             // Build hierarchy tree (requires real rewriteSites + replacementPattern)
             var root = BuildCycleHierarchy(rootCycle, depth: 0);
@@ -199,7 +199,7 @@ namespace DunGen.Editor
         }
 
         private static void AddCircularConstraints(
-            List<CycleNode> nodes,
+            List<GraphNode> nodes,
             Vector2 center,
             float radius,
             List<LayoutConstraint> constraints)
@@ -208,7 +208,7 @@ namespace DunGen.Editor
                 return;
 
             // Filter nulls
-            var valid = new List<CycleNode>();
+            var valid = new List<GraphNode>();
             foreach (var n in nodes)
                 if (n != null) valid.Add(n);
 
@@ -235,7 +235,7 @@ namespace DunGen.Editor
             }
         }
 
-        private static Vector2 GetConstraintPositionForNode(List<LayoutConstraint> constraints, CycleNode node, Vector2 fallback)
+        private static Vector2 GetConstraintPositionForNode(List<LayoutConstraint> constraints, GraphNode node, Vector2 fallback)
         {
             if (constraints == null || node == null)
                 return fallback;
@@ -257,7 +257,7 @@ namespace DunGen.Editor
             return fallback;
         }
 
-        private static bool CanReach(DungeonCycle cycle, CycleNode from, CycleNode to, HashSet<CycleNode> visited)
+        private static bool CanReach(DungeonCycle cycle, GraphNode from, GraphNode to, HashSet<GraphNode> visited)
         {
             if (from == to)
                 return true;
@@ -269,7 +269,7 @@ namespace DunGen.Editor
 
             foreach (var edge in cycle.edges)
             {
-                CycleNode next = null;
+                GraphNode next = null;
 
                 if (edge.from == from)
                     next = edge.to;
@@ -287,9 +287,9 @@ namespace DunGen.Editor
         // CONSTRAINT RESOLUTION
         // =========================================================
 
-        private static Dictionary<CycleNode, Vector2> ResolveConstraints(List<LayoutConstraint> constraints, float nodeRadius)
+        private static Dictionary<GraphNode, Vector2> ResolveConstraints(List<LayoutConstraint> constraints, float nodeRadius)
         {
-            var positions = new Dictionary<CycleNode, Vector2>();
+            var positions = new Dictionary<GraphNode, Vector2>();
             if (constraints == null) return positions;
 
             // First pass: compute initial positions from constraint definitions
@@ -335,14 +335,14 @@ namespace DunGen.Editor
         // OVERLAP RESOLUTION
         // =========================================================
 
-        private static void ResolveOverlaps(Dictionary<CycleNode, Vector2> positions, float nodeRadius)
+        private static void ResolveOverlaps(Dictionary<GraphNode, Vector2> positions, float nodeRadius)
         {
             if (positions == null || positions.Count < 2)
                 return;
 
             float minDist = nodeRadius * 2.2f;
 
-            var nodes = new List<CycleNode>(positions.Keys);
+            var nodes = new List<GraphNode>(positions.Keys);
 
             for (int iter = 0; iter < MaxOverlapIterations; iter++)
             {

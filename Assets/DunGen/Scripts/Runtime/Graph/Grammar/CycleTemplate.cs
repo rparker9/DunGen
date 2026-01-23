@@ -12,7 +12,7 @@ namespace DunGen
     /// File format: .dungen.json
     /// Location: Assets/Resources/Data/CycleTemplates/*.dungen.json
     /// </summary>
-    public static class CycleTemplateIO
+    public static class CycleTemplate
     {
         private const int CURRENT_VERSION = 1;
         private const string FILE_EXTENSION = ".dungen.json";
@@ -95,7 +95,7 @@ namespace DunGen
         public static bool Save(
             string filePath,
             DungeonCycle cycle,
-            Dictionary<CycleNode, Vector2> positions,
+            Dictionary<GraphNode, Vector2> positions,
             string templateName,
             string description = "")
         {
@@ -161,7 +161,7 @@ namespace DunGen
             }
         }
 
-        private static SerializedCycle SerializeCycle(DungeonCycle cycle, Dictionary<CycleNode, Vector2> positions)
+        private static SerializedCycle SerializeCycle(DungeonCycle cycle, Dictionary<GraphNode, Vector2> positions)
         {
             var serialized = new SerializedCycle
             {
@@ -172,7 +172,7 @@ namespace DunGen
             };
 
             // Node GUID mapping
-            var nodeToGuid = new Dictionary<CycleNode, string>();
+            var nodeToGuid = new Dictionary<GraphNode, string>();
             var guidToIndex = new Dictionary<string, int>();
 
             // Serialize nodes
@@ -287,7 +287,7 @@ namespace DunGen
         /// <summary>
         /// Load a cycle template from a JSON file.
         /// </summary>
-        public static (DungeonCycle cycle, Dictionary<CycleNode, Vector2> positions, TemplateMetadata metadata) Load(string filePath)
+        public static (DungeonCycle cycle, Dictionary<GraphNode, Vector2> positions, TemplateMetadata metadata) Load(string filePath)
         {
             if (!File.Exists(filePath))
             {
@@ -345,11 +345,11 @@ namespace DunGen
             }
         }
 
-        private static (DungeonCycle, Dictionary<CycleNode, Vector2>) DeserializeCycle(SerializedCycle sCycle)
+        private static (DungeonCycle, Dictionary<GraphNode, Vector2>) DeserializeCycle(SerializedCycle sCycle)
         {
             var cycle = new DungeonCycle();
-            var positions = new Dictionary<CycleNode, Vector2>();
-            var guidToNode = new Dictionary<string, CycleNode>();
+            var positions = new Dictionary<GraphNode, Vector2>();
+            var guidToNode = new Dictionary<string, GraphNode>();
 
             // Deserialize nodes
             if (sCycle.nodes != null)
@@ -358,7 +358,7 @@ namespace DunGen
                 {
                     if (sNode == null) continue;
 
-                    var node = new CycleNode
+                    var node = new GraphNode
                     {
                         label = sNode.label ?? "",
                         roles = new List<NodeRole>(),
@@ -401,7 +401,7 @@ namespace DunGen
                     if (!guidToNode.TryGetValue(sEdge.toGuid, out var toNode))
                         continue;
 
-                    var edge = new CycleEdge(fromNode, toNode, sEdge.bidirectional)
+                    var edge = new GraphEdge(fromNode, toNode, sEdge.bidirectional)
                     {
                         isBlocked = sEdge.isBlocked,
                         hasSightline = sEdge.hasSightline,
@@ -524,7 +524,7 @@ namespace DunGen
 
         #region Utilities
 
-        private static string GenerateNodeGuid(CycleNode node, int index)
+        private static string GenerateNodeGuid(GraphNode node, int index)
         {
             return $"{node.label}_{index}";
         }

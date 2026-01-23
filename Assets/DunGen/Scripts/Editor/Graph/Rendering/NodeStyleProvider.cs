@@ -10,7 +10,7 @@ namespace DunGen.Editor
     public sealed class NodeStyleProvider
     {
         // Node depth tracking (0 = root cycle, 1+ = subcycle)
-        private readonly Dictionary<CycleNode, int> _nodeDepth = new Dictionary<CycleNode, int>();
+        private readonly Dictionary<GraphNode, int> _nodeDepth = new Dictionary<GraphNode, int>();
 
         // Base colors
         private static readonly Color StartColor = new Color(0.25f, 0.85f, 0.30f);
@@ -60,13 +60,13 @@ namespace DunGen.Editor
             }
         }
 
-        public bool IsSubcycleNode(CycleNode node)
+        public bool IsSubcycleNode(GraphNode node)
         {
             if (node == null) return false;
             return _nodeDepth.TryGetValue(node, out int d) && d > 0;
         }
 
-        public bool IsSlotMarkerNode(CycleNode node)
+        public bool IsSlotMarkerNode(GraphNode node)
         {
             if (node == null) return false;
             if (!_nodeDepth.TryGetValue(node, out int d)) return false;
@@ -85,7 +85,7 @@ namespace DunGen.Editor
         // NODE COLORING
         // =========================================================
 
-        public Color GetNodeColor(CycleNode node, DungeonCycle rootCycle)
+        public Color GetNodeColor(GraphNode node, DungeonCycle rootCycle)
         {
             if (node == null) return DefaultColor;
 
@@ -130,7 +130,7 @@ namespace DunGen.Editor
         // NODE LABELING
         // =========================================================
 
-        public string GetNodeLabel(CycleNode node)
+        public string GetNodeLabel(GraphNode node)
         {
             if (node == null) return "";
 
@@ -159,7 +159,7 @@ namespace DunGen.Editor
         // HELPER: Find rewrite site
         // =========================================================
 
-        private static RewriteSite FindRewriteSiteRecursive(DungeonCycle pattern, CycleNode node)
+        private static RewriteSite FindRewriteSiteRecursive(DungeonCycle pattern, GraphNode node)
         {
             if (pattern == null || node == null || pattern.rewriteSites == null)
                 return null;

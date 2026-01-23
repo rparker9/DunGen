@@ -12,10 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 50293cd51b5a30a4d8519277dec84314, type: 3}
   m_Name: DungeonGenSettings
   m_EditorClassIdentifier: Assembly-CSharp::DunGen.DungeonGenerationSettings
-  templatePool:
-  - {fileID: 11400000, guid: c02f31ba65613684fa22ca3ae45960fd, type: 2}
-  maxRewriteDepth: 2
-  maxRewritesPerCycle: 3
+  maxRewriteDepth: 1
+  maxRewritesPerCycle: 1
   rewriteProbability: 0.7
   selectionMode: 0
   seed: 0

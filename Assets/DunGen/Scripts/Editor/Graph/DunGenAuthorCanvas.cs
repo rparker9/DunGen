@@ -18,8 +18,8 @@ namespace DunGen.Editor
         [System.NonSerialized] private DungeonCycle currentTemplate;
 
         // Cached data
-        private FlatGraph _flatGraph;
-        private Dictionary<CycleNode, Vector2> _nodePositions = new Dictionary<CycleNode, Vector2>();
+        private ResolvedGraph _flatGraph;
+        private Dictionary<GraphNode, Vector2> _nodePositions = new Dictionary<GraphNode, Vector2>();
 
         // =========================================================
         // SHARED COMPONENTS
@@ -152,7 +152,7 @@ namespace DunGen.Editor
             {
                 // In Author mode, we want to see the ORIGINAL structure (including rewrite sites)
                 // NOT the expanded flat graph (which removes placeholders)
-                _flatGraph = new FlatGraph(currentTemplate.nodes, currentTemplate.edges);
+                _flatGraph = new ResolvedGraph(currentTemplate.nodes, currentTemplate.edges);
 
                 // Build node depth map
                 _styleProvider.BuildDepthMap(currentTemplate);
@@ -298,7 +298,7 @@ namespace DunGen.Editor
             var positions = _authorController.GetNodePositions();
 
             // Save using JSON system (NO circular dependency!)
-            bool success = CycleTemplateIO.Save(
+            bool success = CycleTemplate.Save(
                 templateName,
                 currentTemplate,
                 positions,
@@ -361,7 +361,7 @@ namespace DunGen.Editor
                 return;
 
             // Load using JSON system
-            var (loadedCycle, loadedPositions, metadata) = CycleTemplateIO.Load(filePath);
+            var (loadedCycle, loadedPositions, metadata) = CycleTemplate.Load(filePath);
 
             if (loadedCycle == null)
             {

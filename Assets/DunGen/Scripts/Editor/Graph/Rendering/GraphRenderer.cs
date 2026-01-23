@@ -126,8 +126,8 @@ namespace DunGen.Editor
         /// <param name="canvasRect"></param>
         /// <param name="camera"></param>
         public void DrawEdges(
-            FlatGraph graph,
-            Dictionary<CycleNode, Vector2> positions,
+            ResolvedGraph graph,
+            Dictionary<GraphNode, Vector2> positions,
             Rect canvasRect,
             CameraController camera,
             NodeStyleProvider styleProvider)
@@ -159,7 +159,7 @@ namespace DunGen.Editor
         /// <param name="canvasRect"></param>
         /// <param name="camera"></param>
         private void DrawEdge(
-            CycleEdge edge, 
+            GraphEdge edge, 
             Vector2 worldFrom, 
             Vector2 worldTo, 
             Rect canvasRect, 
@@ -237,7 +237,7 @@ namespace DunGen.Editor
             Handles.DrawAAConvexPolygon(tri);
         }
 
-        private void DrawEdgeLockIcon(CycleEdge edge, Vector2 lineStart, Vector2 lineEnd, CameraController camera)
+        private void DrawEdgeLockIcon(GraphEdge edge, Vector2 lineStart, Vector2 lineEnd, CameraController camera)
         {
             if (!edge.RequiresAnyKey())
                 return;
@@ -274,13 +274,13 @@ namespace DunGen.Editor
         // =========================================================
 
         public void DrawNodes(
-            FlatGraph graph,
-            Dictionary<CycleNode, Vector2> positions,
+            ResolvedGraph graph,
+            Dictionary<GraphNode, Vector2> positions,
             Rect canvasRect,
             CameraController camera,
             NodeStyleProvider styleProvider,
             DungeonCycle rootCycle,
-            CycleNode selectedNode)
+            GraphNode selectedNode)
         {
             if (graph == null || graph.nodes == null)
                 return;
@@ -298,14 +298,14 @@ namespace DunGen.Editor
         }
 
         private void DrawNode(
-            CycleNode node,
+            GraphNode node,
             Vector2 worldPos,
             Rect canvasRect,
             CameraController camera,
             NodeStyleProvider styleProvider,
             DungeonCycle rootCycle,
             float nodeRadius,
-            CycleNode selectedNode)
+            GraphNode selectedNode)
         {
             Vector2 screenPos = camera.WorldToScreen(worldPos, canvasRect);
             float screenRadius = nodeRadius * camera.Zoom;
@@ -372,7 +372,7 @@ namespace DunGen.Editor
             GUI.Label(labelRect, text, style);
         }
 
-        private void DrawNodeKeyIcon(CycleNode node, Vector2 screenPos, float screenRadius, CameraController camera)
+        private void DrawNodeKeyIcon(GraphNode node, Vector2 screenPos, float screenRadius, CameraController camera)
         {
             if (node == null || !node.GrantsAnyKey())
                 return;

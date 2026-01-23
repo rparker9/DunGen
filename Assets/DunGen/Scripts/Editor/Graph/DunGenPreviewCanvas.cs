@@ -5,9 +5,9 @@ using UnityEngine;
 namespace DunGen.Editor
 {
     /// <summary>
-    /// Preview canvas: Generate and view expanded cycles.
-    /// Uses CycleFlattener to collect nested nodes/edges for rendering,
-    /// but uses GraphLayoutEngine.ComputeLayout(rootCycle) for positions.
+    /// Preview canvas: compile a grammar and render the resolved graph.
+    /// Uses GraphResolver to resolve (splice) rewrites into a concrete graph,
+    /// and GraphLayoutEngine to compute node positions.
     /// </summary>
     public sealed class DunGenPreviewCanvas : EditorWindow
     {
@@ -19,10 +19,10 @@ namespace DunGen.Editor
         [SerializeField] private int currentSeed;
 
         // Cached data for rendering
-        private FlatGraph _flatGraph;
+        private ResolvedGraph _resolvedGraph;
 
         // Layout results
-        private readonly Dictionary<CycleNode, Vector2> _nodePositions = new();
+        private readonly Dictionary<GraphNode, Vector2> _nodePositions = new();
         private List<GraphLayoutEngine.CycleVisualBounds> _cycleBounds = new();
 
         // Render + styling
@@ -58,7 +58,7 @@ namespace DunGen.Editor
             _inspector = new PreviewInspector(_styleProvider);
 
             if (generatedCycle != null)
-                RefreshCycleDisplay();
+                RebuildPreviewCache();
         }
 
         private void OnGUI()
@@ -114,16 +114,16 @@ namespace DunGen.Editor
 
             _renderer.DrawGrid(canvasRect, _camera);
 
-            if (_flatGraph != null && _nodePositions.Count > 0)
+            if (_resolvedGraph != null && _nodePositions.Count > 0)
             {
                 _renderer.DrawEdges(
-                    _flatGraph, 
+                    _resolvedGraph, 
                     _nodePositions, 
                     canvasRect, 
                     _camera, 
                     _styleProvider);
                 _renderer.DrawNodes(
-                    _flatGraph,
+                    _resolvedGraph,
                     _nodePositions,
                     canvasRect,
                     _camera,
@@ -142,7 +142,7 @@ namespace DunGen.Editor
                 var helpRect = new Rect(canvasRect.center.x - 170, canvasRect.center.y - 45, 340, 90);
                 string debugInfo =
                     $"Original Cycle: {generatedCycle.nodes?.Count ?? 0} nodes\n" +
-                    $"Flat Graph: {_flatGraph?.nodes?.Count ?? 0} nodes, {_flatGraph?.edges?.Count ?? 0} edges\n" +
+                    $"Resolved Graph: {_resolvedGraph?.nodes?.Count ?? 0} nodes, {_resolvedGraph?.edges?.Count ?? 0} edges\n" +
                     $"Positions: {_nodePositions.Count}\n\n" +
                     "Check console for detailed logs";
 
@@ -187,7 +187,7 @@ namespace DunGen.Editor
         {
             _inspector.DrawInspector(
                 inspectorRect,
-                _flatGraph,
+                _resolvedGraph,
                 _previewController.SelectedNode,
                 generatedCycle
             );
@@ -216,8 +216,9 @@ namespace DunGen.Editor
 
             Debug.Log($"[Preview] ========== GENERATING DUNGEON (Seed: {currentSeed}) ==========");
 
-            var generator = new ProceduralDungeonGenerator(generationSettings);
-            generatedCycle = generator.Generate(currentSeed);
+            // Compile main cycle
+            var compiler = new DungeonGraphCompiler(generationSettings);
+            generatedCycle = compiler.CompileCycle(currentSeed);
 
             if (generatedCycle == null)
             {
@@ -225,7 +226,7 @@ namespace DunGen.Editor
                 return;
             }
 
-            RefreshCycleDisplay();
+            RebuildPreviewCache();
             ResetView();
 
             EditorApplication.delayCall += () =>
@@ -236,31 +237,31 @@ namespace DunGen.Editor
             };
         }
 
-        private void RefreshCycleDisplay()
+        private void RebuildPreviewCache()
         {
             if (generatedCycle == null)
             {
-                _flatGraph = null;
+                _resolvedGraph = null;
                 _nodePositions.Clear();
                 _cycleBounds.Clear();
                 return;
             }
 
-            Debug.Log($"[Preview] ===== REFRESH CYCLE DISPLAY =====");
+            Debug.Log($"[Preview] ===== REBUILD PREVIEW CACHE =====");
             Debug.Log($"[Preview] Original cycle: {generatedCycle.nodes?.Count ?? 0} nodes, {generatedCycle.rewriteSites?.Count ?? 0} rewrite sites");
 
-            // Flatten for rendering edges (GraphRenderer consumes FlatGraph)
-            _flatGraph = CycleFlattener.FlattenNestedCycle(generatedCycle);
+            // Resolve for rendering edges and layout (GraphRenderer + GraphLayoutEngine consume ResolvedGraph)
+            _resolvedGraph = GraphResolver.ResolveGraph(generatedCycle);
 
-            if (_flatGraph == null || _flatGraph.nodes == null || _flatGraph.nodes.Count == 0)
+            if (_resolvedGraph == null || _resolvedGraph.nodes == null || _resolvedGraph.nodes.Count == 0)
             {
-                Debug.LogWarning("[Preview] Flatten returned empty graph");
+                Debug.LogWarning("[Preview] Resolved graph is empty.");
                 _nodePositions.Clear();
                 _cycleBounds.Clear();
                 return;
             }
 
-            Debug.Log($"[Preview] Flat graph: {_flatGraph.nodes.Count} nodes, {_flatGraph.edges.Count} edges");
+            Debug.Log($"[Preview] Resolved graph: {_resolvedGraph.nodes.Count} nodes, {_resolvedGraph.edges.Count} edges");
 
             // Compute positions from hierarchical cycle layout
             _nodePositions.Clear();
@@ -272,21 +273,21 @@ namespace DunGen.Editor
             if (positions == null || positions.Count == 0)
             {
                 Debug.LogWarning("[Preview] Hierarchical ComputeLayout returned 0 positions; using circle fallback.");
-                positions = ComputeCircleFallback(_flatGraph, NodeStyleProvider.NodeSize);
+                positions = ComputeCircularLayoutFallback(_resolvedGraph, NodeStyleProvider.NodeSize);
             }
 
-            // Make sure every flattened node has a position; if not, place missing ones on an outer ring.
+            // Make sure every resolved node has a position; if not, place missing ones on an outer ring.
             foreach (var kv in positions)
                 _nodePositions[kv.Key] = kv.Value;
 
-            EnsureAllFlatNodesHavePositions(_flatGraph, _nodePositions, NodeStyleProvider.NodeSize);
+            EnsureAllResolvedNodesHavePositions(_resolvedGraph, _nodePositions, NodeStyleProvider.NodeSize);
 
             Debug.Log($"[Preview] Computed {_nodePositions.Count} positions");
         }
 
-        private static Dictionary<CycleNode, Vector2> ComputeCircleFallback(FlatGraph graph, float radius)
+        private static Dictionary<GraphNode, Vector2> ComputeCircularLayoutFallback(ResolvedGraph graph, float radius)
         {
-            var result = new Dictionary<CycleNode, Vector2>();
+            var result = new Dictionary<GraphNode, Vector2>();
             if (graph == null || graph.nodes == null || graph.nodes.Count == 0)
                 return result;
 
@@ -306,7 +307,7 @@ namespace DunGen.Editor
             return result;
         }
 
-        private static void EnsureAllFlatNodesHavePositions(FlatGraph graph, Dictionary<CycleNode, Vector2> positions, float nodeRadius)
+        private static void EnsureAllResolvedNodesHavePositions(ResolvedGraph graph, Dictionary<GraphNode, Vector2> positions, float nodeRadius)
         {
             if (graph == null || graph.nodes == null || positions == null)
                 return;
@@ -330,7 +331,7 @@ namespace DunGen.Editor
             }
 
             // Place missing nodes on an outer ring
-            var missing = new List<CycleNode>();
+            var missing = new List<GraphNode>();
             foreach (var n in graph.nodes)
             {
                 if (n == null) continue;
