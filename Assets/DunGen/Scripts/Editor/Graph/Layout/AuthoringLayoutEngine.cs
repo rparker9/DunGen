@@ -6,21 +6,23 @@ namespace DunGen.Editor
     /// <summary>
     /// Constraint-based hierarchical layout engine.
     /// Uses declarative positioning rules and automatic overlap resolution.
+    /// UPDATED: Positions subcycles outside parent circles with aligned entrances to minimize edge crossings.
     /// </summary>
-    public sealed class GraphLayoutEngine
+    public sealed class AuthoringLayoutEngine
     {
         // Layout configuration
         private const float BaseRadius = 250f;
         private const float RadiusScale = 0.65f;
         private const float MinRadius = 60f;
         private const float MinNodeSpacing = 100f;
+        private const float SubcycleSpacing = 80f; // Spacing between parent and subcycle boundaries
 
         // Overlap resolution
         private const int MaxOverlapIterations = 50;
         private const float OverlapPushForce = 0.5f;
 
         /// <summary>
-        /// Cycle boundary information for rendering “cycles within cycles”.
+        /// Cycle boundary information for rendering "cycles within cycles".
         /// </summary>
         public readonly struct CycleVisualBounds
         {
@@ -178,31 +180,134 @@ namespace DunGen.Editor
             // Record this cycle boundary (for rendering rings)
             boundsOut?.Add(new CycleVisualBounds(center, radius, cycleNode.depth));
 
-            // Place this cycle’s owned nodes on a circle
+            // Place this cycle's owned nodes on a circle (no rotation for root)
             AddCircularConstraints(cycleNode.ownedNodes, center, radius, constraints);
 
-            // Recurse into subcycles: each subcycle is centered on the placeholder node
+            // Recurse into subcycles: position them OUTSIDE parent circle with aligned entrances
             foreach (var kvp in cycleNode.placeholderToSubcycle)
             {
                 var placeholder = kvp.Key;
                 var sub = kvp.Value;
                 if (placeholder == null || sub == null) continue;
 
-                // Find placeholder constraint position on the circle
-                Vector2 placeholderPos = GetConstraintPositionForNode(constraints, placeholder, fallback: center);
+                // Find placeholder position on the parent circle
+                Vector2 placeholderPos = GetConstraintPositionForNode(constraints, placeholder, center);
 
-                // Smaller radius for nested cycles
-                float subRadius = Mathf.Max(radius * RadiusScale, MinRadius);
+                // Calculate subcycle radius based on node count
+                float subRadius = CalculateSubcycleRadius(sub, radius);
 
-                GenerateConstraints(sub, placeholderPos, subRadius, constraints, boundsOut);
+                // Direction from parent center toward placeholder
+                Vector2 direction = (placeholderPos - center).normalized;
+
+                // Position subcycle OUTSIDE parent circle
+                float offsetDistance = radius + subRadius + SubcycleSpacing;
+                Vector2 subcycleCenter = center + direction * offsetDistance;
+
+                // Calculate angle from subcycle center back to parent center
+                // This is the angle where we want the subcycle's entrance to face
+                float entranceAngle = Mathf.Atan2(center.y - subcycleCenter.y, center.x - subcycleCenter.x);
+
+                // Generate constraints for subcycle with aligned entrance
+                GenerateConstraintsAligned(sub, subcycleCenter, subRadius, constraints, boundsOut, entranceAngle);
             }
         }
 
+        /// <summary>
+        /// Generate constraints for a subcycle with entrance aligned toward parent
+        /// </summary>
+        private static void GenerateConstraintsAligned(
+            CycleLayoutNode cycleNode,
+            Vector2 center,
+            float radius,
+            List<LayoutConstraint> constraints,
+            List<CycleVisualBounds> boundsOut,
+            float entranceAngle)
+        {
+            if (cycleNode == null || cycleNode.cycle == null)
+                return;
+
+            radius = Mathf.Max(radius, MinRadius);
+
+            cycleNode.center = center;
+            cycleNode.radius = radius;
+
+            boundsOut?.Add(new CycleVisualBounds(center, radius, cycleNode.depth));
+
+            // Find entrance node (startNode of the cycle)
+            GraphNode entranceNode = cycleNode.cycle.startNode;
+
+            // Place nodes on circle with entrance aligned
+            AddCircularConstraintsAligned(
+                cycleNode.ownedNodes,
+                center,
+                radius,
+                constraints,
+                entranceNode,
+                entranceAngle
+            );
+
+            // Recurse into subcycles
+            foreach (var kvp in cycleNode.placeholderToSubcycle)
+            {
+                var placeholder = kvp.Key;
+                var sub = kvp.Value;
+                if (placeholder == null || sub == null) continue;
+
+                Vector2 placeholderPos = GetConstraintPositionForNode(constraints, placeholder, center);
+                float subRadius = CalculateSubcycleRadius(sub, radius);
+
+                Vector2 direction = (placeholderPos - center).normalized;
+                float offsetDistance = radius + subRadius + SubcycleSpacing;
+                Vector2 subcycleCenter = center + direction * offsetDistance;
+
+                float subEntranceAngle = Mathf.Atan2(center.y - subcycleCenter.y, center.x - subcycleCenter.x);
+
+                GenerateConstraintsAligned(sub, subcycleCenter, subRadius, constraints, boundsOut, subEntranceAngle);
+            }
+        }
+
+        /// <summary>
+        /// Calculate appropriate radius for a subcycle based on its node count
+        /// </summary>
+        private static float CalculateSubcycleRadius(CycleLayoutNode sub, float parentRadius)
+        {
+            if (sub == null) return MinRadius;
+
+            // Base subcycle radius on number of nodes
+            int nodeCount = sub.ownedNodes.Count;
+
+            // Calculate minimum radius needed for node spacing
+            float minRadiusForSpacing = (nodeCount * MinNodeSpacing) / (2f * Mathf.PI);
+
+            // Use smaller of scaled parent or calculated minimum
+            float scaledRadius = parentRadius * RadiusScale;
+
+            // Ensure we have enough space
+            return Mathf.Max(Mathf.Max(scaledRadius, minRadiusForSpacing), MinRadius);
+        }
+
+        /// <summary>
+        /// Add circular constraints without rotation (for root cycle)
+        /// </summary>
         private static void AddCircularConstraints(
             List<GraphNode> nodes,
             Vector2 center,
             float radius,
             List<LayoutConstraint> constraints)
+        {
+            AddCircularConstraintsAligned(nodes, center, radius, constraints, null, 0f);
+        }
+
+        /// <summary>
+        /// Add circular constraints with entrance node aligned to specified angle
+        /// </summary>
+        private static void AddCircularConstraintsAligned(
+            List<GraphNode> nodes,
+            Vector2 center,
+            float radius,
+            List<LayoutConstraint> constraints,
+            GraphNode entranceNode,
+            float entranceAngle)
         {
             if (nodes == null || nodes.Count == 0)
                 return;
@@ -219,9 +324,24 @@ namespace DunGen.Editor
             float minRadiusForSpacing = (count * MinNodeSpacing) / (2f * Mathf.PI);
             float usedRadius = Mathf.Max(radius, minRadiusForSpacing, MinRadius);
 
+            // Find entrance node index
+            int entranceIndex = -1;
+            if (entranceNode != null)
+            {
+                entranceIndex = valid.IndexOf(entranceNode);
+            }
+
             for (int i = 0; i < count; i++)
             {
+                // Calculate base angle (evenly distributed around circle)
                 float angle = (i / (float)count) * Mathf.PI * 2f;
+
+                // Rotate so entrance node is at specified angle
+                if (entranceIndex >= 0)
+                {
+                    float entranceBaseAngle = (entranceIndex / (float)count) * Mathf.PI * 2f;
+                    angle = angle - entranceBaseAngle + entranceAngle;
+                }
 
                 constraints.Add(new LayoutConstraint
                 {
@@ -255,32 +375,6 @@ namespace DunGen.Editor
             }
 
             return fallback;
-        }
-
-        private static bool CanReach(DungeonCycle cycle, GraphNode from, GraphNode to, HashSet<GraphNode> visited)
-        {
-            if (from == to)
-                return true;
-
-            if (visited.Contains(from))
-                return false;
-
-            visited.Add(from);
-
-            foreach (var edge in cycle.edges)
-            {
-                GraphNode next = null;
-
-                if (edge.from == from)
-                    next = edge.to;
-                else if (edge.bidirectional && edge.to == from)
-                    next = edge.from;
-
-                if (next != null && CanReach(cycle, next, to, visited))
-                    return true;
-            }
-
-            return false;
         }
 
         // =========================================================

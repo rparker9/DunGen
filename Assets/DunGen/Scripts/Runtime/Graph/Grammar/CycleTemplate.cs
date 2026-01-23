@@ -101,13 +101,13 @@ namespace DunGen
         {
             if (cycle == null)
             {
-                Debug.LogError("[CycleTemplateIO] Cannot save null cycle");
+                Debug.LogError("[CycleTemplate] Cannot save null cycle");
                 return false;
             }
 
             if (string.IsNullOrEmpty(filePath))
             {
-                Debug.LogError("[CycleTemplateIO] File path is null or empty");
+                Debug.LogError("[CycleTemplate] File path is null or empty");
                 return false;
             }
 
@@ -137,7 +137,7 @@ namespace DunGen
                 // Validate before saving
                 if (!ValidateFile(file, out string error))
                 {
-                    Debug.LogError($"[CycleTemplateIO] Validation failed: {error}");
+                    Debug.LogError($"[CycleTemplate] Validation failed: {error}");
                     return false;
                 }
 
@@ -147,7 +147,7 @@ namespace DunGen
                 // Write to file
                 File.WriteAllText(filePath, json);
 
-                Debug.Log($"[CycleTemplateIO] Saved template to: {filePath}");
+                Debug.Log($"[CycleTemplate] Saved template to: {filePath}");
                 Debug.Log($"  Nodes: {file.cycle.nodes.Count}");
                 Debug.Log($"  Edges: {file.cycle.edges.Count}");
                 Debug.Log($"  Rewrite Sites: {file.cycle.rewriteSites.Count}");
@@ -156,7 +156,7 @@ namespace DunGen
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[CycleTemplateIO] Save failed: {ex.Message}");
+                Debug.LogError($"[CycleTemplate] Save failed: {ex.Message}");
                 return false;
             }
         }
@@ -291,7 +291,7 @@ namespace DunGen
         {
             if (!File.Exists(filePath))
             {
-                Debug.LogError($"[CycleTemplateIO] File not found: {filePath}");
+                Debug.LogError($"[CycleTemplate] File not found: {filePath}");
                 return (null, null, null);
             }
 
@@ -305,14 +305,14 @@ namespace DunGen
 
                 if (file == null)
                 {
-                    Debug.LogError($"[CycleTemplateIO] Failed to parse JSON from: {filePath}");
+                    Debug.LogError($"[CycleTemplate] Failed to parse JSON from: {filePath}");
                     return (null, null, null);
                 }
 
                 // Validate
                 if (!ValidateFile(file, out string error))
                 {
-                    Debug.LogError($"[CycleTemplateIO] Validation failed: {error}");
+                    Debug.LogError($"[CycleTemplate] Validation failed: {error}");
                     return (null, null, null);
                 }
 
@@ -327,11 +327,11 @@ namespace DunGen
 
                 if (cycle == null)
                 {
-                    Debug.LogError($"[CycleTemplateIO] Deserialization failed");
+                    Debug.LogError($"[CycleTemplate] Deserialization failed");
                     return (null, null, null);
                 }
 
-                Debug.Log($"[CycleTemplateIO] Loaded template from: {filePath}");
+                Debug.Log($"[CycleTemplate] Loaded template from: {filePath}");
                 Debug.Log($"  Nodes: {cycle.nodes.Count}");
                 Debug.Log($"  Edges: {cycle.edges.Count}");
                 Debug.Log($"  Rewrite Sites: {cycle.rewriteSites.Count}");
@@ -340,7 +340,7 @@ namespace DunGen
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[CycleTemplateIO] Load failed: {ex.Message}\n{ex.StackTrace}");
+                Debug.LogError($"[CycleTemplate] Load failed: {ex.Message}\n{ex.StackTrace}");
                 return (null, null, null);
             }
         }

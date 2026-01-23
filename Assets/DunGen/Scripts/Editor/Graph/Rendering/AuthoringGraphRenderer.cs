@@ -8,7 +8,7 @@ namespace DunGen.Editor
     /// Handles all rendering for the graph editor: grid, nodes, edges, labels.
     /// UPDATED: adds cycle-boundary rings + slot marker rendering.
     /// </summary>
-    public sealed class GraphRenderer
+    public sealed class AuthoringGraphRenderer
     {
         private static readonly Color BackgroundColor = new Color(0.16f, 0.16f, 0.16f);
         private static readonly Color GridMinorColor = new Color(1f, 1f, 1f, 0.06f);
@@ -87,7 +87,7 @@ namespace DunGen.Editor
         // =========================================================
 
         public void DrawCycleBounds(
-            List<GraphLayoutEngine.CycleVisualBounds> bounds,
+            List<AuthoringLayoutEngine.CycleVisualBounds> bounds,
             Rect canvasRect,
             CameraController camera)
         {
@@ -159,11 +159,11 @@ namespace DunGen.Editor
         /// <param name="canvasRect"></param>
         /// <param name="camera"></param>
         private void DrawEdge(
-            GraphEdge edge, 
-            Vector2 worldFrom, 
-            Vector2 worldTo, 
-            Rect canvasRect, 
-            CameraController camera, 
+            GraphEdge edge,
+            Vector2 worldFrom,
+            Vector2 worldTo,
+            Rect canvasRect,
+            CameraController camera,
             NodeStyleProvider styleProvider)
         {
             // Convert to screen space first
@@ -328,7 +328,7 @@ namespace DunGen.Editor
                 Handles.color = new Color(nodeColor.r, nodeColor.g, nodeColor.b, nodeColor.a);
                 Handles.DrawWireDisc(screenPos, Vector3.forward, screenRadius);
 
-                // Small inner dot to keep it “present”
+                // Small inner dot to keep it ï¿½presentï¿½
                 Handles.color = new Color(nodeColor.r, nodeColor.g, nodeColor.b, nodeColor.a * 0.6f);
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, screenRadius * 0.25f);
             }

@@ -5,23 +5,25 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Preview mode controller: Generate and view expanded cycles.
-    /// Read-only, auto-layout, regeneratable with seeds.
+    /// Uses hierarchical preview layout for generated dungeons.
     /// </summary>
     public sealed class PreviewModeController : IModeController
     {
         private DungeonCycle _cycle;
         private Dictionary<GraphNode, Vector2> _autoPositions = new Dictionary<GraphNode, Vector2>();
+        private PreviewLayoutEngine.LayoutResult _hierarchicalLayout;
         private float _nodeRadius;
         private GraphNode _selectedNode;
         private int _currentSeed;
 
         public GraphNode SelectedNode => _selectedNode;
         public int CurrentSeed => _currentSeed;
+        public PreviewLayoutEngine.LayoutResult HierarchicalLayout => _hierarchicalLayout;
 
         public PreviewModeController(float nodeRadius)
         {
             _nodeRadius = nodeRadius;
-        }   
+        }
 
         public void SetCycle(DungeonCycle cycle)
         {
@@ -39,11 +41,17 @@ namespace DunGen.Editor
             if (_cycle == null)
             {
                 _autoPositions.Clear();
+                _hierarchicalLayout = null;
                 return;
             }
 
-            // Use the graph layout engine to compute positions
-            _autoPositions = GraphLayoutEngine.ComputeLayout(_cycle, _nodeRadius);
+            // Use the preview layout engine for hierarchical layout
+            _hierarchicalLayout = PreviewLayoutEngine.ComputeLayout(_cycle);
+
+            // Extract flat positions for backward compatibility
+            _autoPositions = _hierarchicalLayout != null
+                ? _hierarchicalLayout.allPositions
+                : new Dictionary<GraphNode, Vector2>();
         }
 
         // =========================================================
