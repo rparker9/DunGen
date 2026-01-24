@@ -7,7 +7,6 @@ namespace DunGen
 {
     /// <summary>
     /// Pure JSON-based serialization for cycle templates.
-    /// No ScriptableObjects, no Unity serialization, just clean JSON files.
     /// 
     /// File format: .dungen.json
     /// Location: Assets/Resources/Data/CycleTemplates/*.dungen.json
@@ -146,11 +145,7 @@ namespace DunGen
 
                 // Write to file
                 File.WriteAllText(filePath, json);
-
                 Debug.Log($"[CycleTemplate] Saved template to: {filePath}");
-                Debug.Log($"  Nodes: {file.cycle.nodes.Count}");
-                Debug.Log($"  Edges: {file.cycle.edges.Count}");
-                Debug.Log($"  Rewrite Sites: {file.cycle.rewriteSites.Count}");
 
                 return true;
             }
@@ -330,11 +325,6 @@ namespace DunGen
                     Debug.LogError($"[CycleTemplate] Deserialization failed");
                     return (null, null, null);
                 }
-
-                Debug.Log($"[CycleTemplate] Loaded template from: {filePath}");
-                Debug.Log($"  Nodes: {cycle.nodes.Count}");
-                Debug.Log($"  Edges: {cycle.edges.Count}");
-                Debug.Log($"  Rewrite Sites: {cycle.rewriteSites.Count}");
 
                 return (cycle, positions, file.metadata);
             }

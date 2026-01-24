@@ -1,57 +1,103 @@
 using UnityEditor;
 using UnityEngine;
 
-using GraphPlanarityTesting.PlanarityTesting.BoyerMyrvold;
-
 namespace DunGen.Editor
 {
     /// <summary>
-    /// Preview canvas: compile a grammar and render the HIERARCHICAL graph.
-    /// Uses PreviewLayoutEngine and PreviewGraphRenderer for generated dungeons.
+    /// Editor preview window for generated dungeon graphs.
+    ///
+    /// Mental model:
+    /// - <see cref="DungeonGraphRewriter"/> generates two representations:
+    ///   1) <see cref="DungeonCycle"/>: the *nested derivation tree* (grammar expansion result).
+    ///      - Useful for inspecting rewrite structure, debugging generation rules, and later “mappable” workflows.
+    ///   2) <see cref="FlatGraph"/>: the *final connectivity graph* (nodes/edges after rewrites are applied).
+    ///      - This is the graph we want to draw *readably* and (eventually) map into space.
+    ///
+    /// Preview goals:
+    /// - "Preview always readable": avoid crossings when the connectivity graph is planar.
+    /// - "Mappable later": keep the nested root cycle around for future mapping workflows, but do not render it here.
+    ///
+    /// Rendering pipeline in this window:
+    /// - Generate nested + flat graphs.
+    /// - Compute a 2D planar (or fallback) layout for the flat graph via <see cref="PreviewLayoutEngine"/>.
+    /// - Render the positioned flat graph via <see cref="PreviewGraphRenderer"/>.
     /// </summary>
     public sealed class DunGenPreviewCanvas : EditorWindow
     {
         // =========================================================
-        // DATA
+        // GENERATED DATA (most recent run)
         // =========================================================
-        [System.NonSerialized] private DungeonCycle _generatedRootCycle;
-        [System.NonSerialized] private FlatGraph _generatedFlatGraph;
-        [SerializeField] private DungeonGenerationSettings generationSettings;
-        [SerializeField] private int currentSeed;
-
-        // Layout result (hierarchical)
-        private PreviewLayoutEngine.Result _layoutResult;
-
-        // Render + camera
-        private PreviewGraphRenderer _renderer;
-        private CameraController _camera;
-
-        // Mode controller + inspector
-        private PreviewModeController _previewController;
-        private PreviewInspector _inspector;
-        private NodeStyleProvider _styleProvider;
-
-        // Planarity test cache
-        private bool _isPlanar;
-        private PlanarEmbedding<GraphNode> _planarEmbedding;
-        private string _planarityWarning;
 
         /// <summary>
-        /// Gets the root cycle that was generated for the dungeon during the most recent generation process.
+        /// Nested derivation tree produced by grammar instantiation.
+        /// Kept for inspection and future mapping work, but not used for rendering in this window.
         /// </summary>
-        /// <remarks>The root cycle represents the primary loop or cycle structure within the dungeon
-        /// layout. This property can be used to analyze or visualize the overall connectivity and flow of the generated
-        /// dungeon. The value is only valid after dungeon generation has completed successfully.</remarks>
+        [System.NonSerialized] private DungeonCycle _generatedRootCycle;
+
+        /// <summary>
+        /// Final connectivity graph after rewrite splicing.
+        /// This is the “draw this” representation for readable preview.
+        /// </summary>
+        [System.NonSerialized] private FlatGraph _generatedFlatGraph;
+
+        /// <summary>Generator settings used to pick templates and apply rewrite rules.</summary>
+        [SerializeField] private DungeonGenerationSettings generationSettings;
+
+        /// <summary>Seed used for the most recent generation (shown in inspector).</summary>
+        [SerializeField] private int currentSeed;
+
+        // =========================================================
+        // LAYOUT (flat planar / fallback)
+        // =========================================================
+
+        /// <summary>
+        /// Cached layout output for the most recent flat graph.
+        /// Includes planarity result and computed vertex positions.
+        /// </summary>
+        private PreviewLayoutEngine.Result _layoutResult;
+
+        // =========================================================
+        // VIEW + UI
+        // =========================================================
+
+        private AuthoringGraphRenderer _renderer;
+
+        /// <summary>Camera-like state for panning/zooming in the canvas.</summary>
+        private CameraController _camera;
+
+        /// <summary>
+        /// Handles selection/hit testing and stores per-mode transient UI state.
+        /// For preview mode, this is primarily “which node is selected”.
+        /// </summary>
+        private PreviewModeController _previewController;
+
+        /// <summary>Inspector panel renderer (stats + selected node details).</summary>
+        private PreviewInspector _inspector;
+
+        /// <summary>Shared styling/config for node visuals (kept for future polish).</summary>
+        private NodeStyleProvider _styleProvider;
+
+        /// <summary>
+        /// Nested derivation tree generated most recently.
+        /// </summary>
+        /// <remarks>
+        /// This is only valid after a successful Generate.
+        /// It is not currently used to draw the preview; it exists for inspection and future mapping work.
+        /// </remarks>
         public DungeonCycle GeneratedRootCycle => _generatedRootCycle;
 
         /// <summary>
-        /// Gets the generated flat graph representation of the data.
+        /// Flat connectivity graph generated most recently.
         /// </summary>
+        /// <remarks>
+        /// This is the canonical “preview graph” representation: nodes/edges after rewrites are applied.
+        /// </remarks>
         public FlatGraph GeneratedFlatGraph => _generatedFlatGraph;
 
         // =========================================================
         // WINDOW
         // =========================================================
+
         [MenuItem("Tools/DunGen/Preview Graph")]
         public static void Open()
         {
@@ -62,11 +108,12 @@ namespace DunGen.Editor
         private void OnEnable()
         {
             _camera = new CameraController();
-            _renderer = new PreviewGraphRenderer();
+            _renderer = new AuthoringGraphRenderer();
             _styleProvider = new NodeStyleProvider();
-            _previewController = new PreviewModeController(25f); // Node radius
+            _previewController = new PreviewModeController(25f); // Hit-test radius in *world* space (before zoom).
             _inspector = new PreviewInspector(_styleProvider);
 
+            // If the domain reloads and we still have cached data, rebuild layout so the window redraws correctly.
             if (_generatedRootCycle != null)
                 RebuildLayout();
         }
@@ -75,8 +122,8 @@ namespace DunGen.Editor
         {
             DrawToolbar();
 
-            var toolbarH = 36f;
-            var inspectorW = 320f;
+            const float toolbarH = 36f;
+            const float inspectorW = 320f;
 
             var canvasRect = new Rect(0, toolbarH, position.width - inspectorW, position.height - toolbarH);
             var inspectorRect = new Rect(position.width - inspectorW, toolbarH, inspectorW, position.height - toolbarH);
@@ -88,6 +135,7 @@ namespace DunGen.Editor
         // =========================================================
         // TOOLBAR
         // =========================================================
+
         private void DrawToolbar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
@@ -115,42 +163,64 @@ namespace DunGen.Editor
         // =========================================================
         // CANVAS
         // =========================================================
+
         private void DrawCanvas(Rect canvasRect)
         {
             _renderer.DrawBackground(canvasRect);
 
+            // Input is handled before drawing so selection and camera changes apply immediately.
             HandleCanvasInput(canvasRect);
 
             _renderer.DrawGrid(canvasRect, _camera);
 
-            {
-                var msg = _generatedFlatGraph == null
-                    ? "Planarity: (no graph)"
-                    : (_isPlanar
-                        ? "Planarity: Planar (embedding available)"
-                        : "Planarity: Non-planar (crossings unavoidable)");
+            // Planarity status is derived from the *layout result we are actually rendering*.
+            // This avoids mismatches where a simplified planarity check disagrees with draw-time data.
+            bool hasGraph = _generatedFlatGraph != null && !_generatedFlatGraph.IsEmpty;
+            bool planar = _layoutResult != null && _layoutResult.isPlanar;
 
-                var r = new Rect(canvasRect.x + 10, canvasRect.y + 10, 520, 44);
-                EditorGUI.HelpBox(r, msg, _isPlanar ? MessageType.Info : MessageType.Warning);
-            }
+            string msg = !hasGraph
+                ? "Planarity: (no graph)"
+                : (planar
+                    ? "Planarity: Planar (embedding available)"
+                    : "Planarity: Non-planar (crossings unavoidable)");
 
-            if (_generatedFlatGraph != null && _layoutResult != null && _layoutResult.positions != null && _layoutResult.positions.Count > 0)
+            var r = new Rect(canvasRect.x + 10, canvasRect.y + 10, 520, 44);
+            EditorGUI.HelpBox(r, msg, planar ? MessageType.Info : MessageType.Warning);
+
+            // Draw the positioned flat graph.
+            // Note: We intentionally draw only the flat connectivity representation here.
+            // The nested root cycle remains available for analysis/mapping work, but is not rendered in this view.
+            if (_generatedFlatGraph != null &&
+                _layoutResult != null &&
+                _layoutResult.positions != null &&
+                _layoutResult.positions.Count > 0)
             {
                 var start = _generatedRootCycle != null ? _generatedRootCycle.startNode : null;
                 var goal = _generatedRootCycle != null ? _generatedRootCycle.goalNode : null;
 
-                _renderer.DrawFlatGraph(
+                _renderer.DrawEdges(
                     _generatedFlatGraph,
                     _layoutResult.positions,
                     canvasRect,
                     _camera,
-                    _previewController.SelectedNode,
-                    start,
-                    goal
+                    _styleProvider
                 );
+
+                _renderer.DrawNodes(
+                    _generatedFlatGraph,
+                    _layoutResult.positions,
+                    canvasRect,
+                    _camera,
+                    _styleProvider,
+                    _generatedRootCycle,
+                    _previewController.SelectedNode
+                );
+
             }
             else if (_generatedFlatGraph != null)
             {
+                // We have a graph, but no layout positions (layout failed or returned empty).
+                // This should be rare; check console for details.
                 var helpStyle = new GUIStyle(EditorStyles.helpBox)
                 {
                     fontSize = 12,
@@ -170,6 +240,9 @@ namespace DunGen.Editor
             _previewController.DrawOverlays(canvasRect, _camera);
         }
 
+        /// <summary>
+        /// Handles camera controls (pan/zoom) and forwards selection input to the preview controller.
+        /// </summary>
         private void HandleCanvasInput(Rect canvasRect)
         {
             Event e = Event.current;
@@ -178,7 +251,7 @@ namespace DunGen.Editor
             if (!canvasRect.Contains(mousePos))
                 return;
 
-            // Camera pan (MMB)
+            // Pan camera (MMB drag)
             if (e.type == EventType.MouseDrag && e.button == 2)
             {
                 _camera.Pan(e.delta);
@@ -186,7 +259,7 @@ namespace DunGen.Editor
                 return;
             }
 
-            // Zoom (wheel)
+            // Zoom camera (scroll wheel)
             if (e.type == EventType.ScrollWheel)
             {
                 float zoomDelta = -e.delta.y * 0.05f;
@@ -195,16 +268,21 @@ namespace DunGen.Editor
                 return;
             }
 
-            // Forward to controller for node selection
+            // Selection (LMB) and other mode-specific behavior.
             _previewController.HandleInput(e, mousePos, canvasRect, _camera);
         }
 
         // =========================================================
         // INSPECTOR
         // =========================================================
+
         private void DrawInspector(Rect inspectorRect)
         {
-            // Delegate to PreviewInspector (like AuthorCanvas does with AuthorInspector)
+            // The inspector reads:
+            // - the computed layout result (planarity + positions)
+            // - the flat graph (connectivity / degrees / etc.)
+            // - the selected node (UI state)
+            // - the root cycle (generation context and start/goal references)
             _inspector.DrawInspector(
                 inspectorRect,
                 _layoutResult,
@@ -219,9 +297,17 @@ namespace DunGen.Editor
         // ACTIONS
         // =========================================================
 
+        /// <summary>
+        /// Runs the full preview pipeline:
+        /// 1) Validate settings.
+        /// 2) Generate a seed.
+        /// 3) Compile the dungeon grammar into:
+        ///    - a nested derivation tree (<see cref="DungeonCycle"/>)
+        ///    - and a flat connectivity graph (<see cref="FlatGraph"/>).
+        /// 4) Compute a planar (or fallback) 2D layout for the flat graph.
+        /// </summary>
         private void GenerateProcedural()
         {
-            // Validate settings
             if (generationSettings == null)
             {
                 EditorUtility.DisplayDialog("Generation Failed", "Please assign a DungeonGenerationSettings asset.", "OK");
@@ -234,32 +320,21 @@ namespace DunGen.Editor
                 return;
             }
 
-            // Generate new seed and set in controller
+            // New seed for each generation, displayed in inspector.
             currentSeed = Random.Range(0, 10000);
             _previewController.SetSeed(currentSeed);
 
             Debug.Log($"[Preview] ========== GENERATING DUNGEON (Seed: {currentSeed}) ==========");
 
-            // One-shot dungeon graph pipeline:
-            // - Instantiate grammar (nested DungeonCycle rewrite tree)
-            // - Apply rewrites to produce final flat connectivity (FlatGraph)
-            // Returns:
-            // - _generatedRootCycle: nested derivation tree (for hierarchical layout / inspection)
-            // - _generatedFlatGraph: flat connectivity graph (for planarity + mapping)
+            // One-shot pipeline:
+            // - Instantiate nested rewrite tree (DungeonCycle)
+            // - Rewrite/splice to final flat connectivity (FlatGraph)
             _generatedFlatGraph = DungeonGraphRewriter.CompileToFlatGraph(
                 generationSettings,
                 currentSeed,
                 out _generatedRootCycle
             );
 
-            _isPlanar = FlatGraphPlanarity.TryGetEmbedding(_generatedFlatGraph, out _planarEmbedding);
-
-            _planarityWarning = _isPlanar
-                ? null
-                : "Non-planar: edge crossings are unavoidable. Falling back to best-effort layout.";
-
-
-            // Validate results
             if (_generatedRootCycle == null)
             {
                 EditorUtility.DisplayDialog("Generation Failed", "Generator returned null. Check console for errors.", "OK");
@@ -272,17 +347,15 @@ namespace DunGen.Editor
                 return;
             }
 
-            // Results are valid, log summary
             Debug.Log(
                 $"[Preview] Nested root cycle nodes: {_generatedRootCycle.nodes?.Count ?? 0}, " +
                 $"Flat nodes: {_generatedFlatGraph.NodeCount}, Flat edges: {_generatedFlatGraph.EdgeCount}"
             );
 
-            // Rebuild layout + reset view
             RebuildLayout();
             ResetView();
 
-            // Delay fit + repaint to end of frame to ensure layout is ready
+            // Delay fit to ensure the window has a valid size and layout result has populated positions.
             EditorApplication.delayCall += () =>
             {
                 if (this == null) return;
@@ -291,6 +364,9 @@ namespace DunGen.Editor
             };
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
         private void RebuildLayout()
         {
             if (_generatedFlatGraph == null || _generatedFlatGraph.IsEmpty)
@@ -301,13 +377,20 @@ namespace DunGen.Editor
 
             _layoutResult = PreviewLayoutEngine.Compute(_generatedFlatGraph);
 
-            // keep controller positions in sync for hit-testing
+            // REQUIRED for correct coloring & slot markers
+            _styleProvider.Clear();
+            _styleProvider.BuildDepthMap(_generatedRootCycle);
+
             _previewController.SetGraph(_generatedFlatGraph);
 
             if (_layoutResult == null)
                 Debug.LogError("[Preview] Layout computation failed!");
         }
 
+
+        /// <summary>
+        /// Fits the camera to the currently computed layout bounds.
+        /// </summary>
         private void FitView()
         {
             if (_layoutResult?.positions == null || _layoutResult.positions.Count == 0)
@@ -318,6 +401,9 @@ namespace DunGen.Editor
             _camera.FitToBounds(bounds, canvasSize, padding: 50f);
         }
 
+        /// <summary>
+        /// Resets camera pan/zoom to defaults.
+        /// </summary>
         private void ResetView()
         {
             _camera.Reset();

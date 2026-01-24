@@ -258,8 +258,6 @@ namespace DunGen.Editor
             _authorController.SetCycle(currentTemplate);
 
             ResetView();
-
-            Debug.Log("[CreateNewTemplate] Created new empty template");
         }
 
         private void SaveTemplate()
@@ -372,9 +370,6 @@ namespace DunGen.Editor
                 return;
             }
 
-            Debug.Log($"[LoadTemplate] Loaded cycle with {loadedCycle.nodes.Count} nodes, " +
-                      $"{loadedCycle.edges.Count} edges, {loadedCycle.rewriteSites.Count} rewrite sites");
-
             // NOW clear everything (after successful load)
             if (currentTemplate != null)
             {
@@ -405,21 +400,6 @@ namespace DunGen.Editor
                     if (kvp.Key != null && controllerPositions.ContainsKey(kvp.Key))
                     {
                         controllerPositions[kvp.Key] = kvp.Value;
-                    }
-                }
-
-                Debug.Log($"[LoadTemplate] Applied {loadedPositions.Count} positions");
-            }
-
-            // Verify rewrite sites
-            if (currentTemplate.rewriteSites != null)
-            {
-                foreach (var site in currentTemplate.rewriteSites)
-                {
-                    if (site != null && site.placeholder != null)
-                    {
-                        bool hasRole = site.placeholder.HasRole(NodeRoleType.RewriteSite);
-                        Debug.Log($"[LoadTemplate] Rewrite site '{site.placeholder.label}': HasRole={hasRole}");
                     }
                 }
             }

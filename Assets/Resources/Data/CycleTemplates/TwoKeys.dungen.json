@@ -1,0 +1,137 @@
+{
+    "version": 1,
+    "metadata": {
+        "name": "TwoKeys.dungen",
+        "description": "",
+        "guid": "TwoKeys.dungen",
+        "createdTimestamp": 1769219476,
+        "modifiedTimestamp": 1769219476
+    },
+    "cycle": {
+        "nodes": [
+            {
+                "guid": "Node 0_0",
+                "label": "Node 0",
+                "roles": [
+                    "Start"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 1_1",
+                "label": "Node 1",
+                "roles": [
+                    "Goal"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 2_2",
+                "label": "Node 2",
+                "roles": [],
+                "grantedKeys": [
+                    1
+                ]
+            },
+            {
+                "guid": "Node 3_3",
+                "label": "Node 3",
+                "roles": [],
+                "grantedKeys": [
+                    2
+                ]
+            },
+            {
+                "guid": "Node 4_4",
+                "label": "Node 4",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            }
+        ],
+        "edges": [
+            {
+                "fromGuid": "Node 2_2",
+                "toGuid": "Node 1_1",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": [
+                    1,
+                    2
+                ]
+            },
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 3_3",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 3_3",
+                "toGuid": "Node 1_1",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": [
+                    1,
+                    2
+                ]
+            },
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 4_4",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 4_4",
+                "toGuid": "Node 2_2",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            }
+        ],
+        "rewriteSites": [
+            {
+                "placeholderGuid": "Node 4_4",
+                "replacementTemplateGuid": ""
+            }
+        ],
+        "positions": [
+            {
+                "nodeGuid": "Node 0_0",
+                "x": -130.12168884277345,
+                "y": 9.652868270874024
+            },
+            {
+                "nodeGuid": "Node 1_1",
+                "x": 138.40841674804688,
+                "y": -3.406346559524536
+            },
+            {
+                "nodeGuid": "Node 2_2",
+                "x": 84.5391616821289,
+                "y": 145.14222717285157
+            },
+            {
+                "nodeGuid": "Node 3_3",
+                "x": 6.183871269226074,
+                "y": -96.4532470703125
+            },
+            {
+                "nodeGuid": "Node 4_4",
+                "x": -72.17141723632813,
+                "y": 142.69361877441407
+            }
+        ],
+        "startNodeIndex": 0,
+        "goalNodeIndex": 1
+    }
+}
