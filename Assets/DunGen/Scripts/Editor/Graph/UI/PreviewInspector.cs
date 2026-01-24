@@ -18,10 +18,12 @@ namespace DunGen.Editor
 
         public void DrawInspector(
             Rect rect,
-            PreviewLayoutEngine.LayoutResult layoutResult,
+            PreviewLayoutEngine.Result layout,
+            FlatGraph flatGraph,
             GraphNode selectedNode,
             DungeonCycle generatedCycle,
             int currentSeed)
+
         {
             GUILayout.BeginArea(rect);
 
@@ -33,17 +35,33 @@ namespace DunGen.Editor
             EditorGUILayout.LabelField("Seed:", currentSeed.ToString());
             EditorGUILayout.Space();
 
-            // Hierarchical graph stats
-            if (layoutResult != null)
+            // Planar layout stats
+            if (layout != null)
             {
-                DrawLayoutStats(layoutResult);
+                EditorGUILayout.LabelField("Layout", EditorStyles.boldLabel);
+
+                if (flatGraph == null)
+                {
+                    EditorGUILayout.LabelField("Graph:", "(none)");
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("Nodes:", flatGraph.NodeCount.ToString());
+                    EditorGUILayout.LabelField("Edges:", flatGraph.EdgeCount.ToString());
+                }
+
+                EditorGUILayout.LabelField("Planar:", layout.isPlanar ? "Yes" : "No");
+
+                if (!string.IsNullOrEmpty(layout.warning))
+                    EditorGUILayout.HelpBox(layout.warning, layout.isPlanar ? MessageType.Info : MessageType.Warning);
+
                 EditorGUILayout.Space();
             }
 
             // Selected node info
             if (selectedNode != null)
             {
-                DrawSelectedNodeInfo(selectedNode, generatedCycle, layoutResult);
+                DrawSelectedNodeInfo(selectedNode, generatedCycle, flatGraph);
             }
             else if (generatedCycle != null)
             {
@@ -56,76 +74,13 @@ namespace DunGen.Editor
             GUILayout.EndArea();
         }
 
-        public int GetMaxDepth(PreviewLayoutEngine.LayoutResult layoutResult)
-        {
-            int max = 0;
-            foreach (var cycle in layoutResult.allCycles)
-            {
-                if (cycle.depth > max)
-                    max = cycle.depth;
-            }
-            return max;
-        }
-
         // =========================================================
         // LAYOUT STATISTICS
         // =========================================================
 
-        private void DrawLayoutStats(PreviewLayoutEngine.LayoutResult layoutResult)
+        private void DrawLayoutStats(PreviewLayoutEngine.Result layoutResult)
         {
-            EditorGUILayout.LabelField("Hierarchical Layout", EditorStyles.boldLabel);
-
-            EditorGUILayout.LabelField("Total Cycles:", layoutResult.allCycles.Count.ToString());
-            EditorGUILayout.LabelField("Total Nodes:", layoutResult.allPositions.Count.ToString());
-            EditorGUILayout.LabelField("Max Depth:", GetMaxDepth(layoutResult).ToString());
-
-            // Count edges across all cycles
-            int totalEdges = CountTotalEdges(layoutResult);
-            EditorGUILayout.LabelField("Total Edges:", totalEdges.ToString());
-
-            // Count special nodes
-            int keyNodes = 0;
-            int startNodes = 0;
-            int goalNodes = 0;
-
-            foreach (var kvp in layoutResult.allPositions)
-            {
-                var node = kvp.Key;
-                if (node == null) continue;
-
-                if (node.GrantsAnyKey())
-                    keyNodes++;
-                if (node.HasRole(NodeRoleType.Start))
-                    startNodes++;
-                if (node.HasRole(NodeRoleType.Goal))
-                    goalNodes++;
-            }
-
-            EditorGUILayout.LabelField("Key Nodes:", keyNodes.ToString());
-            EditorGUILayout.LabelField("Start Nodes:", startNodes.ToString());
-            EditorGUILayout.LabelField("Goal Nodes:", goalNodes.ToString());
-        }
-
-        private int CountTotalEdges(PreviewLayoutEngine.LayoutResult layoutResult)
-        {
-            var countedEdges = new System.Collections.Generic.HashSet<GraphEdge>();
-            int count = 0;
-
-            foreach (var cycle in layoutResult.allCycles)
-            {
-                if (cycle?.source?.edges == null) continue;
-
-                foreach (var edge in cycle.source.edges)
-                {
-                    if (edge != null && !countedEdges.Contains(edge))
-                    {
-                        countedEdges.Add(edge);
-                        count++;
-                    }
-                }
-            }
-
-            return count;
+           
         }
 
         // =========================================================
@@ -135,7 +90,7 @@ namespace DunGen.Editor
         private void DrawSelectedNodeInfo(
             GraphNode selectedNode,
             DungeonCycle generatedCycle,
-            PreviewLayoutEngine.LayoutResult layoutResult)
+            FlatGraph flatGraph)
         {
             EditorGUILayout.LabelField("Selected Node", EditorStyles.boldLabel);
 
@@ -144,18 +99,6 @@ namespace DunGen.Editor
             if (string.IsNullOrEmpty(displayLabel))
                 displayLabel = "(unnamed)";
             EditorGUILayout.LabelField("Label:", displayLabel);
-
-            // Find which cycle this node belongs to
-            PreviewLayoutEngine.LayoutCycle ownerCycle = FindNodeOwnerCycle(selectedNode, layoutResult);
-            if (ownerCycle != null)
-            {
-                EditorGUILayout.LabelField("Cycle Depth:", ownerCycle.depth.ToString());
-
-                if (ownerCycle.source.startNode == selectedNode)
-                    EditorGUILayout.LabelField("Role:", "Start/Entrance");
-                else if (ownerCycle.source.goalNode == selectedNode)
-                    EditorGUILayout.LabelField("Role:", "Goal/Exit");
-            }
 
             // Roles
             if (selectedNode.roles != null && selectedNode.roles.Count > 0)
@@ -180,30 +123,14 @@ namespace DunGen.Editor
 
             // Connected edges
             EditorGUILayout.Space();
-            DrawConnectedEdges(selectedNode, layoutResult);
+            DrawConnectedEdges(selectedNode, flatGraph);
         }
 
-        private PreviewLayoutEngine.LayoutCycle FindNodeOwnerCycle(
-            GraphNode node,
-            PreviewLayoutEngine.LayoutResult layoutResult)
-        {
-            if (layoutResult?.allCycles == null || node == null)
-                return null;
-
-            foreach (var cycle in layoutResult.allCycles)
-            {
-                if (cycle?.source?.nodes != null && cycle.source.nodes.Contains(node))
-                    return cycle;
-            }
-
-            return null;
-        }
-
-        private void DrawConnectedEdges(GraphNode selectedNode, PreviewLayoutEngine.LayoutResult layoutResult)
+        private void DrawConnectedEdges(GraphNode selectedNode, FlatGraph flatGraph)
         {
             EditorGUILayout.LabelField("Connected Edges:", EditorStyles.boldLabel);
 
-            if (layoutResult?.allCycles == null)
+            if (flatGraph?.edges == null)
             {
                 EditorGUILayout.LabelField("(none)");
                 return;
@@ -211,40 +138,35 @@ namespace DunGen.Editor
 
             int edgeCount = 0;
 
-            // Find all edges connected to this node across all cycles
-            foreach (var cycle in layoutResult.allCycles)
+            foreach (var edge in flatGraph.edges)
             {
-                if (cycle?.source?.edges == null) continue;
+                if (edge == null) continue;
 
-                foreach (var edge in cycle.source.edges)
+                bool isOutgoing = edge.from == selectedNode;
+                bool isIncoming = edge.to == selectedNode;
+                if (!isOutgoing && !isIncoming) continue;
+
+                edgeCount++;
+
+                string direction = isOutgoing ? "->" : "<-";
+                GraphNode otherNode = isOutgoing ? edge.to : edge.from;
+                string otherLabel = otherNode?.label ?? "(unnamed)";
+                string edgeDesc = $"{direction} {otherLabel}";
+
+                var properties = new System.Collections.Generic.List<string>();
+                if (edge.bidirectional) properties.Add("<->");
+                if (edge.isBlocked) properties.Add("BLOCKED");
+                if (edge.hasSightline) properties.Add("SIGHT");
+                if (edge.RequiresAnyKey())
                 {
-                    if (edge == null) continue;
-
-                    bool isOutgoing = edge.from == selectedNode;
-                    bool isIncoming = edge.to == selectedNode;
-                    if (!isOutgoing && !isIncoming) continue;
-
-                    edgeCount++;
-                    string direction = isOutgoing ? "->" : "<-";
-                    GraphNode otherNode = isOutgoing ? edge.to : edge.from;
-                    string otherLabel = otherNode?.label ?? "(unnamed)";
-                    string edgeDesc = $"{direction} {otherLabel}";
-
-                    var properties = new System.Collections.Generic.List<string>();
-                    if (edge.bidirectional) properties.Add("<->");
-                    if (edge.isBlocked) properties.Add("BLOCKED");
-                    if (edge.hasSightline) properties.Add("SIGHT");
-                    if (edge.RequiresAnyKey())
-                    {
-                        string keys = string.Join(",", edge.requiredKeys);
-                        properties.Add($"Reqd Keys: {keys}");
-                    }
-
-                    if (properties.Count > 0)
-                        edgeDesc += $" ({string.Join(", ", properties)})";
-
-                    EditorGUILayout.LabelField("  • " + edgeDesc);
+                    string keys = string.Join(",", edge.requiredKeys);
+                    properties.Add($"Reqd Keys: {keys}");
                 }
+
+                if (properties.Count > 0)
+                    edgeDesc += $" ({string.Join(", ", properties)})";
+
+                EditorGUILayout.LabelField("  • " + edgeDesc);
             }
 
             if (edgeCount == 0)

@@ -1,275 +1,353 @@
+#if UNITY_EDITOR
+using System;
 using System.Collections.Generic;
 using UnityEngine;
+using GraphPlanarityTesting.Graphs.DataStructures;
+using GraphPlanarityTesting.PlanarityTesting.BoyerMyrvold;
 
 namespace DunGen.Editor
 {
     /// <summary>
-    /// NEW APPROACH: Hierarchical layout that preserves cycle structure.
-    /// Instead of flattening, we maintain the nested structure throughout layout and rendering.
-    /// This eliminates edge crossings by treating each cycle as a self-contained unit.
+    /// Planar preview layout for a <see cref="FlatGraph"/>.
+    ///
+    /// Pipeline:
+    /// 1) Convert FlatGraph -> undirected simple IGraph.
+    /// 2) Run planarity + get faces.
+    /// 3) Choose an outer face.
+    /// 4) Compute a straight-line embedding via iterative barycentric placement:
+    ///    - Outer face fixed on a circle
+    ///    - Interior vertices = average of neighbors (Gauss–Seidel)
+    ///
+    /// Notes:
+    /// - This is a pragmatic editor preview layout.
+    /// - Some planar graphs may still produce poor-looking drawings (non-3-connected, articulation, etc),
+    ///   but edge crossings should be avoided for truly planar inputs.
     /// </summary>
-    public sealed class PreviewLayoutEngine
+    public static class PreviewLayoutEngine
     {
-        // =========================================================
-        // DATA STRUCTURES
-        // =========================================================
-
-        /// <summary>
-        /// A cycle with its computed layout information
-        /// </summary>
-        public class LayoutCycle
+        public sealed class Result
         {
-            // Source data
-            public DungeonCycle source;
-            public int depth;
-
-            // Computed layout
-            public Vector2 center;
-            public float radius;
-            public Dictionary<GraphNode, Vector2> nodePositions = new Dictionary<GraphNode, Vector2>();
-
-            // Hierarchy
-            public LayoutCycle parent;
-            public List<LayoutCycle> children = new List<LayoutCycle>();
-
-            // Connection points for parent
-            public GraphNode entranceNode;  // Where parent connects in
-            public GraphNode exitNode;      // Where we connect back to parent
-            public Vector2 entrancePos;
-            public Vector2 exitPos;
+            public bool isPlanar;
+            public string warning;
+            public Dictionary<GraphNode, Vector2> positions;
+            public PlanarEmbedding<GraphNode> embedding;
+            public PlanarFaces<GraphNode> faces;
+            public GraphNode startNode;
+            public GraphNode goalNode;
         }
 
-        /// <summary>
-        /// Complete layout result with hierarchy preserved
-        /// </summary>
-        public class LayoutResult
+        public static Result Compute(FlatGraph flat, float outerRadius = 350f, int relaxIterations = 400)
         {
-            public LayoutCycle root;
-            public List<LayoutCycle> allCycles = new List<LayoutCycle>();
-            public Dictionary<GraphNode, Vector2> allPositions = new Dictionary<GraphNode, Vector2>();
-        }
-
-        // =========================================================
-        // CONFIGURATION
-        // =========================================================
-
-        private const float BaseRadius = 300f;
-        private const float MinRadius = 80f;
-        private const float NodeSpacing = 100f;
-        private const float CycleSpacing = 120f; // Space between nested cycles
-        private const float DepthRadiusScale = 0.7f; // How much smaller each level gets
-
-        // =========================================================
-        // PUBLIC API
-        // =========================================================
-
-        /// <summary>
-        /// Compute hierarchical layout for a dungeon cycle tree
-        /// </summary>
-        public static LayoutResult ComputeLayout(DungeonCycle rootCycle)
-        {
-            if (rootCycle == null)
-                return new LayoutResult();
-
-            var result = new LayoutResult();
-
-            // Build layout tree
-            result.root = BuildLayoutTree(rootCycle, depth: 0, parent: null);
-            CollectAllCycles(result.root, result.allCycles);
-
-            // Compute positions recursively
-            LayoutCycleRecursive(result.root, Vector2.zero, BaseRadius);
-
-            // Collect all positions
-            CollectAllPositions(result.root, result.allPositions);
-
-            return result;
-        }
-
-        // =========================================================
-        // TREE BUILDING
-        // =========================================================
-
-        private static LayoutCycle BuildLayoutTree(DungeonCycle cycle, int depth, LayoutCycle parent)
-        {
-            var layout = new LayoutCycle
+            var r = new Result
             {
-                source = cycle,
-                depth = depth,
-                parent = parent,
-                entranceNode = cycle.startNode,
-                exitNode = cycle.goalNode
+                isPlanar = false,
+                warning = null,
+                positions = new Dictionary<GraphNode, Vector2>()
             };
 
-            // Process rewrite sites to find children
-            if (cycle.rewriteSites != null)
+            if (flat == null || flat.IsEmpty)
             {
-                foreach (var site in cycle.rewriteSites)
+                r.warning = "No graph to layout.";
+                return r;
+            }
+
+            var g = BuildUndirectedSimpleGraph(flat);
+
+            var bm = new BoyerMyrvold<GraphNode>();
+
+            if (!bm.IsPlanar(g, out var embedding))
+            {
+                r.isPlanar = false;
+                r.warning = "Non-planar: crossings are unavoidable. Using fallback layout.";
+                return r;
+            }
+
+            r.isPlanar = true;
+            r.embedding = embedding;
+
+            // Faces are useful to pick an outer boundary.
+            if (!bm.TryGetPlanarFaces(g, out var faces) || faces == null)
+            {
+                // Still planar, but without faces we'll pick a fallback outer ring.
+                r.faces = null;
+                r.warning = "Planar, but faces unavailable. Using fallback planar placement.";
+                r.positions = FallbackCircle(flat, outerRadius);
+                return r;
+            }
+
+            r.faces = faces;
+
+            // Choose an outer face cycle (best-effort).
+            var outerCycle = TryChooseOuterFaceCycle(faces);
+
+            if (outerCycle == null || outerCycle.Count < 3)
+            {
+                r.warning = "Planar, but could not choose an outer face. Using fallback planar placement.";
+                r.positions = FallbackCircle(flat, outerRadius);
+                return r;
+            }
+
+            r.positions = ComputeBarycentricEmbedding(g, outerCycle, outerRadius, relaxIterations);
+            return r;
+        }
+
+        // =========================================================
+        // Graph conversion (FlatGraph -> IGraph<GraphNode>)
+        // =========================================================
+
+        private static IGraph<GraphNode> BuildUndirectedSimpleGraph(FlatGraph flat)
+        {
+            var graph = new UndirectedAdjacencyListGraph<GraphNode>();
+
+            if (flat.nodes != null)
+            {
+                for (int i = 0; i < flat.nodes.Count; i++)
                 {
-                    if (site?.replacementPattern != null)
+                    var v = flat.nodes[i];
+                    if (v != null)
+                        graph.AddVertex(v);
+                }
+            }
+
+            // No parallel edges allowed (your rule).
+            var seen = new HashSet<UndirectedPair>();
+
+            if (flat.edges != null)
+            {
+                for (int i = 0; i < flat.edges.Count; i++)
+                {
+                    var e = flat.edges[i];
+                    if (e == null || e.from == null || e.to == null)
+                        continue;
+
+                    if (ReferenceEquals(e.from, e.to))
+                        continue;
+
+                    var key = new UndirectedPair(e.from, e.to);
+                    if (!seen.Add(key))
+                        continue;
+
+                    graph.AddEdge(e.from, e.to);
+                }
+            }
+
+            return graph;
+        }
+
+        private readonly struct UndirectedPair
+        {
+            private readonly GraphNode _a;
+            private readonly GraphNode _b;
+
+            public UndirectedPair(GraphNode a, GraphNode b)
+            {
+                // deterministic ordering by hash; good enough for editor-time dedupe
+                int ha = a != null ? a.GetHashCode() : 0;
+                int hb = b != null ? b.GetHashCode() : 0;
+
+                if (ha <= hb)
+                {
+                    _a = a;
+                    _b = b;
+                }
+                else
+                {
+                    _a = b;
+                    _b = a;
+                }
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return ((_a != null ? _a.GetHashCode() : 0) * 397) ^ (_b != null ? _b.GetHashCode() : 0);
+                }
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is UndirectedPair other &&
+                       ReferenceEquals(_a, other._a) &&
+                       ReferenceEquals(_b, other._b);
+            }
+        }
+
+        // =========================================================
+        // Outer face selection (best effort)
+        // =========================================================
+
+        private static List<GraphNode> TryChooseOuterFaceCycle(PlanarFaces<GraphNode> faces)
+        {
+            // We don't know PlanarFaces<T> exact structure from your paste,
+            // so we choose conservatively:
+            // - Try common property names via reflection
+            // - Expect "Faces" or something enumerable of face-walks
+            //
+            // If you want this non-reflection, paste PlanarFaces<T> type next.
+            var t = faces.GetType();
+
+            // Try property: Faces
+            var facesProp = t.GetProperty("Faces");
+            if (facesProp != null)
+            {
+                if (facesProp.GetValue(faces) is System.Collections.IEnumerable enumerable)
+                    return ChooseLargestCycle(enumerable);
+            }
+
+            // Try property: AllFaces
+            var allFacesProp = t.GetProperty("AllFaces");
+            if (allFacesProp != null)
+            {
+                if (allFacesProp.GetValue(faces) is System.Collections.IEnumerable enumerable)
+                    return ChooseLargestCycle(enumerable);
+            }
+
+            // Give up (caller will fallback).
+            return null;
+        }
+
+        private static List<GraphNode> ChooseLargestCycle(System.Collections.IEnumerable facesEnumerable)
+        {
+            List<GraphNode> best = null;
+            int bestCount = -1;
+
+            foreach (var face in facesEnumerable)
+            {
+                if (face is System.Collections.IEnumerable walk)
+                {
+                    var cycle = new List<GraphNode>();
+                    foreach (var v in walk)
                     {
-                        var child = BuildLayoutTree(site.replacementPattern, depth + 1, layout);
-                        layout.children.Add(child);
+                        if (v is GraphNode n && n != null)
+                            cycle.Add(n);
+                    }
+
+                    // A "face walk" may repeat vertices; sanitize to a simple cycle.
+                    cycle = CompressCycle(cycle);
+
+                    if (cycle.Count > bestCount)
+                    {
+                        bestCount = cycle.Count;
+                        best = cycle;
                     }
                 }
             }
 
-            return layout;
+            return best;
         }
 
-        private static void CollectAllCycles(LayoutCycle cycle, List<LayoutCycle> output)
+        private static List<GraphNode> CompressCycle(List<GraphNode> cycle)
         {
-            if (cycle == null) return;
+            if (cycle == null || cycle.Count == 0)
+                return cycle;
 
-            output.Add(cycle);
+            // Remove consecutive duplicates
+            var cleaned = new List<GraphNode>(cycle.Count);
+            GraphNode prev = null;
+            for (int i = 0; i < cycle.Count; i++)
+            {
+                var n = cycle[i];
+                if (n == null) continue;
+                if (!ReferenceEquals(prev, n))
+                    cleaned.Add(n);
+                prev = n;
+            }
 
-            foreach (var child in cycle.children)
-                CollectAllCycles(child, output);
-        }
+            // Remove closing duplicate if present
+            if (cleaned.Count >= 2 && ReferenceEquals(cleaned[0], cleaned[^1]))
+                cleaned.RemoveAt(cleaned.Count - 1);
 
-        private static void CollectAllPositions(LayoutCycle cycle, Dictionary<GraphNode, Vector2> output)
-        {
-            if (cycle == null) return;
-
-            foreach (var kvp in cycle.nodePositions)
-                output[kvp.Key] = kvp.Value;
-
-            foreach (var child in cycle.children)
-                CollectAllPositions(child, output);
+            return cleaned;
         }
 
         // =========================================================
-        // LAYOUT COMPUTATION
+        // Barycentric / Tutte-style placement
         // =========================================================
 
-        private static void LayoutCycleRecursive(LayoutCycle layout, Vector2 center, float radius)
+        private static Dictionary<GraphNode, Vector2> ComputeBarycentricEmbedding(
+            IGraph<GraphNode> g,
+            List<GraphNode> outerCycle,
+            float outerRadius,
+            int iterations)
         {
-            if (layout?.source == null)
-                return;
+            var pos = new Dictionary<GraphNode, Vector2>();
+            var isOuter = new HashSet<GraphNode>(outerCycle);
 
-            layout.center = center;
-            layout.radius = Mathf.Max(radius, MinRadius);
-
-            // Calculate actual radius needed for node spacing
-            int nodeCount = layout.source.nodes?.Count ?? 0;
-            if (nodeCount > 0)
+            // 1) Place outer vertices on a circle
+            for (int i = 0; i < outerCycle.Count; i++)
             {
-                float circumference = nodeCount * NodeSpacing;
-                float minRadiusForSpacing = circumference / (2f * Mathf.PI);
-                layout.radius = Mathf.Max(layout.radius, minRadiusForSpacing);
+                float a = (i / (float)outerCycle.Count) * Mathf.PI * 2f;
+                pos[outerCycle[i]] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * outerRadius;
             }
 
-            // Layout nodes in a circle
-            LayoutNodesInCircle(layout);
-
-            // Layout children
-            if (layout.children.Count > 0)
+            // 2) Initialize interior vertices near origin (or small jitter)
+            foreach (var v in g.Vertices)
             {
-                LayoutChildren(layout);
-            }
-        }
+                if (v == null) continue;
+                if (pos.ContainsKey(v)) continue;
 
-        /// <summary>
-        /// Layout all nodes of this cycle in a circle
-        /// </summary>
-        private static void LayoutNodesInCircle(LayoutCycle layout)
-        {
-            if (layout.source.nodes == null || layout.source.nodes.Count == 0)
-                return;
-
-            var nodes = layout.source.nodes;
-
-            // Filter out null nodes
-            var validNodes = new List<GraphNode>();
-            foreach (var node in nodes)
-            {
-                if (node != null)
-                    validNodes.Add(node);
+                pos[v] = UnityEngine.Random.insideUnitCircle * (outerRadius * 0.1f);
             }
 
-            int count = validNodes.Count;
-            if (count == 0) return;
-
-            // Find entrance index to rotate circle so entrance is at top
-            int entranceIndex = -1;
-            if (layout.entranceNode != null)
+            // 3) Relax interior vertices: v = avg(neighbors)
+            // (Gauss–Seidel updates in-place)
+            for (int it = 0; it < iterations; it++)
             {
-                entranceIndex = validNodes.IndexOf(layout.entranceNode);
-            }
-
-            // If we have a parent, rotate entrance to face parent
-            float baseAngle = -Mathf.PI * 0.5f; // Start at top (12 o'clock)
-
-            if (layout.parent != null)
-            {
-                // Calculate angle from this cycle's center to parent's center
-                Vector2 toParent = layout.parent.center - layout.center;
-                if (toParent.magnitude > 0.001f)
+                foreach (var v in g.Vertices)
                 {
-                    baseAngle = Mathf.Atan2(toParent.y, toParent.x);
+                    if (v == null) continue;
+                    if (isOuter.Contains(v)) continue;
+
+                    Vector2 sum = Vector2.zero;
+                    int deg = 0;
+
+                    foreach (var n in g.GetNeighbours(v))
+                    {
+                        if (n == null) continue;
+                        sum += pos[n];
+                        deg++;
+                    }
+
+                    if (deg > 0)
+                        pos[v] = sum / deg;
                 }
             }
 
-            for (int i = 0; i < count; i++)
-            {
-                var node = validNodes[i];
-
-                // Base angle for this position (evenly distributed)
-                float angle = (i / (float)count) * Mathf.PI * 2f;
-
-                // Rotate so entrance is at baseAngle
-                if (entranceIndex >= 0)
-                {
-                    float entranceBaseAngle = (entranceIndex / (float)count) * Mathf.PI * 2f;
-                    angle = angle - entranceBaseAngle + baseAngle;
-                }
-
-                Vector2 pos = layout.center + new Vector2(
-                    Mathf.Cos(angle) * layout.radius,
-                    Mathf.Sin(angle) * layout.radius
-                );
-
-                layout.nodePositions[node] = pos;
-
-                // Store entrance/exit positions
-                if (node == layout.entranceNode)
-                    layout.entrancePos = pos;
-                if (node == layout.exitNode)
-                    layout.exitPos = pos;
-            }
+            return pos;
         }
 
-        /// <summary>
-        /// Layout child cycles around this cycle
-        /// </summary>
-        private static void LayoutChildren(LayoutCycle parent)
+        // =========================================================
+        // Fallback
+        // =========================================================
+
+        public static Dictionary<GraphNode, Vector2> FallbackCircle(FlatGraph flat, float radius)
         {
-            if (parent.children.Count == 0)
-                return;
+            var pos = new Dictionary<GraphNode, Vector2>();
 
-            // Distribute children evenly around parent circle
-            int childCount = parent.children.Count;
+            if (flat?.nodes == null || flat.nodes.Count == 0)
+                return pos;
 
-            for (int i = 0; i < childCount; i++)
+            var nodes = flat.nodes;
+            int count = 0;
+            for (int i = 0; i < nodes.Count; i++)
+                if (nodes[i] != null) count++;
+
+            if (count == 0) return pos;
+
+            int k = 0;
+            for (int i = 0; i < nodes.Count; i++)
             {
-                var child = parent.children[i];
+                var n = nodes[i];
+                if (n == null) continue;
 
-                // Calculate angle for this child
-                float angle = (i / (float)childCount) * Mathf.PI * 2f;
-
-                // Calculate child radius (smaller at deeper levels)
-                float childBaseRadius = parent.radius * DepthRadiusScale;
-
-                // Position child outside parent circle
-                float distance = parent.radius + childBaseRadius + CycleSpacing;
-                Vector2 childCenter = parent.center + new Vector2(
-                    Mathf.Cos(angle) * distance,
-                    Mathf.Sin(angle) * distance
-                );
-
-                // Recursively layout this child
-                LayoutCycleRecursive(child, childCenter, childBaseRadius);
+                float a = (k / (float)count) * Mathf.PI * 2f;
+                pos[n] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius;
+                k++;
             }
+
+            return pos;
         }
     }
 }
+#endif

@@ -1,6 +1,7 @@
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+
+using GraphPlanarityTesting.PlanarityTesting.BoyerMyrvold;
 
 namespace DunGen.Editor
 {
@@ -13,12 +14,13 @@ namespace DunGen.Editor
         // =========================================================
         // DATA
         // =========================================================
-        [System.NonSerialized] private DungeonCycle generatedCycle;
+        [System.NonSerialized] private DungeonCycle _generatedRootCycle;
+        [System.NonSerialized] private FlatGraph _generatedFlatGraph;
         [SerializeField] private DungeonGenerationSettings generationSettings;
         [SerializeField] private int currentSeed;
 
         // Layout result (hierarchical)
-        private PreviewLayoutEngine.LayoutResult _layoutResult;
+        private PreviewLayoutEngine.Result _layoutResult;
 
         // Render + camera
         private PreviewGraphRenderer _renderer;
@@ -29,7 +31,23 @@ namespace DunGen.Editor
         private PreviewInspector _inspector;
         private NodeStyleProvider _styleProvider;
 
-        public DungeonCycle GeneratedCycle => generatedCycle;
+        // Planarity test cache
+        private bool _isPlanar;
+        private PlanarEmbedding<GraphNode> _planarEmbedding;
+        private string _planarityWarning;
+
+        /// <summary>
+        /// Gets the root cycle that was generated for the dungeon during the most recent generation process.
+        /// </summary>
+        /// <remarks>The root cycle represents the primary loop or cycle structure within the dungeon
+        /// layout. This property can be used to analyze or visualize the overall connectivity and flow of the generated
+        /// dungeon. The value is only valid after dungeon generation has completed successfully.</remarks>
+        public DungeonCycle GeneratedRootCycle => _generatedRootCycle;
+
+        /// <summary>
+        /// Gets the generated flat graph representation of the data.
+        /// </summary>
+        public FlatGraph GeneratedFlatGraph => _generatedFlatGraph;
 
         // =========================================================
         // WINDOW
@@ -49,7 +67,7 @@ namespace DunGen.Editor
             _previewController = new PreviewModeController(25f); // Node radius
             _inspector = new PreviewInspector(_styleProvider);
 
-            if (generatedCycle != null)
+            if (_generatedRootCycle != null)
                 RebuildLayout();
         }
 
@@ -105,18 +123,34 @@ namespace DunGen.Editor
 
             _renderer.DrawGrid(canvasRect, _camera);
 
-            if (_layoutResult != null && _layoutResult.root != null)
             {
-                _renderer.DrawHierarchicalGraph(
-                    _layoutResult,
+                var msg = _generatedFlatGraph == null
+                    ? "Planarity: (no graph)"
+                    : (_isPlanar
+                        ? "Planarity: Planar (embedding available)"
+                        : "Planarity: Non-planar (crossings unavoidable)");
+
+                var r = new Rect(canvasRect.x + 10, canvasRect.y + 10, 520, 44);
+                EditorGUI.HelpBox(r, msg, _isPlanar ? MessageType.Info : MessageType.Warning);
+            }
+
+            if (_generatedFlatGraph != null && _layoutResult != null && _layoutResult.positions != null && _layoutResult.positions.Count > 0)
+            {
+                var start = _generatedRootCycle != null ? _generatedRootCycle.startNode : null;
+                var goal = _generatedRootCycle != null ? _generatedRootCycle.goalNode : null;
+
+                _renderer.DrawFlatGraph(
+                    _generatedFlatGraph,
+                    _layoutResult.positions,
                     canvasRect,
                     _camera,
-                    _previewController.SelectedNode
+                    _previewController.SelectedNode,
+                    start,
+                    goal
                 );
             }
-            else if (generatedCycle != null)
+            else if (_generatedFlatGraph != null)
             {
-                // Show message if layout failed
                 var helpStyle = new GUIStyle(EditorStyles.helpBox)
                 {
                     fontSize = 12,
@@ -130,7 +164,7 @@ namespace DunGen.Editor
                     90
                 );
 
-                GUI.Box(helpRect, "Layout generation failed.\nCheck console for errors.", helpStyle);
+                GUI.Box(helpRect, "Layout not available.\nCheck console for errors.", helpStyle);
             }
 
             _previewController.DrawOverlays(canvasRect, _camera);
@@ -174,8 +208,9 @@ namespace DunGen.Editor
             _inspector.DrawInspector(
                 inspectorRect,
                 _layoutResult,
+                _generatedFlatGraph,
                 _previewController.SelectedNode,
-                generatedCycle,
+                _generatedRootCycle,
                 currentSeed
             );
         }
@@ -186,6 +221,7 @@ namespace DunGen.Editor
 
         private void GenerateProcedural()
         {
+            // Validate settings
             if (generationSettings == null)
             {
                 EditorUtility.DisplayDialog("Generation Failed", "Please assign a DungeonGenerationSettings asset.", "OK");
@@ -198,26 +234,55 @@ namespace DunGen.Editor
                 return;
             }
 
+            // Generate new seed and set in controller
             currentSeed = Random.Range(0, 10000);
             _previewController.SetSeed(currentSeed);
 
             Debug.Log($"[Preview] ========== GENERATING DUNGEON (Seed: {currentSeed}) ==========");
 
-            // CRITICAL: Compile the template into a generated dungeon
-            var compiler = new DungeonGraphCompiler(generationSettings);
-            generatedCycle = compiler.CompileCycle(currentSeed);
+            // One-shot dungeon graph pipeline:
+            // - Instantiate grammar (nested DungeonCycle rewrite tree)
+            // - Apply rewrites to produce final flat connectivity (FlatGraph)
+            // Returns:
+            // - _generatedRootCycle: nested derivation tree (for hierarchical layout / inspection)
+            // - _generatedFlatGraph: flat connectivity graph (for planarity + mapping)
+            _generatedFlatGraph = DungeonGraphRewriter.CompileToFlatGraph(
+                generationSettings,
+                currentSeed,
+                out _generatedRootCycle
+            );
 
-            if (generatedCycle == null)
+            _isPlanar = FlatGraphPlanarity.TryGetEmbedding(_generatedFlatGraph, out _planarEmbedding);
+
+            _planarityWarning = _isPlanar
+                ? null
+                : "Non-planar: edge crossings are unavoidable. Falling back to best-effort layout.";
+
+
+            // Validate results
+            if (_generatedRootCycle == null)
             {
                 EditorUtility.DisplayDialog("Generation Failed", "Generator returned null. Check console for errors.", "OK");
                 return;
             }
 
-            Debug.Log($"[Preview] Generated cycle has {generatedCycle.nodes?.Count ?? 0} nodes");
+            if (_generatedFlatGraph == null || _generatedFlatGraph.IsEmpty)
+            {
+                EditorUtility.DisplayDialog("Generation Failed", "Rewriter returned an empty graph. Check console for errors.", "OK");
+                return;
+            }
 
+            // Results are valid, log summary
+            Debug.Log(
+                $"[Preview] Nested root cycle nodes: {_generatedRootCycle.nodes?.Count ?? 0}, " +
+                $"Flat nodes: {_generatedFlatGraph.NodeCount}, Flat edges: {_generatedFlatGraph.EdgeCount}"
+            );
+
+            // Rebuild layout + reset view
             RebuildLayout();
             ResetView();
 
+            // Delay fit + repaint to end of frame to ensure layout is ready
             EditorApplication.delayCall += () =>
             {
                 if (this == null) return;
@@ -228,39 +293,27 @@ namespace DunGen.Editor
 
         private void RebuildLayout()
         {
-            if (generatedCycle == null)
+            if (_generatedFlatGraph == null || _generatedFlatGraph.IsEmpty)
             {
                 _layoutResult = null;
                 return;
             }
 
-            Debug.Log($"[Preview] ===== COMPUTING HIERARCHICAL LAYOUT =====");
+            _layoutResult = PreviewLayoutEngine.Compute(_generatedFlatGraph);
 
-            // Compute hierarchical layout using PreviewLayoutEngine
-            _layoutResult = PreviewLayoutEngine.ComputeLayout(generatedCycle);
+            // keep controller positions in sync for hit-testing
+            _previewController.SetGraph(_generatedFlatGraph);
 
-            if (_layoutResult != null)
-            {
-                Debug.Log($"[Preview] Layout complete:");
-                Debug.Log($"  - Total cycles: {_layoutResult.allCycles.Count}");
-                Debug.Log($"  - Total nodes: {_layoutResult.allPositions.Count}");
-                Debug.Log($"  - Max depth: {_inspector.GetMaxDepth(_layoutResult)}");
-
-                // Update controller
-                _previewController.SetCycle(generatedCycle);
-            }
-            else
-            {
+            if (_layoutResult == null)
                 Debug.LogError("[Preview] Layout computation failed!");
-            }
         }
 
         private void FitView()
         {
-            if (_layoutResult?.allPositions == null || _layoutResult.allPositions.Count == 0)
+            if (_layoutResult?.positions == null || _layoutResult.positions.Count == 0)
                 return;
 
-            var bounds = CameraController.CalculateWorldBounds(_layoutResult.allPositions, 25f);
+            var bounds = CameraController.CalculateWorldBounds(_layoutResult.positions, 25f);
             var canvasSize = new Vector2(position.width - 320f, position.height - 36f);
             _camera.FitToBounds(bounds, canvasSize, padding: 50f);
         }

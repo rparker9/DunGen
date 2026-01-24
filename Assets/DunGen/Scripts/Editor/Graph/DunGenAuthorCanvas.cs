@@ -18,8 +18,11 @@ namespace DunGen.Editor
         [System.NonSerialized] private DungeonCycle currentTemplate;
 
         // Cached data
-        private ResolvedGraph _flatGraph;
-        private Dictionary<GraphNode, Vector2> _nodePositions = new Dictionary<GraphNode, Vector2>();
+        private FlatGraph _templateGraph;
+
+        // These are the positions used for rendering the graph
+        // The positions are decided by the author controller
+        private Dictionary<GraphNode, Vector2> _nodePositions = new Dictionary<GraphNode, Vector2>();   // This is kept in sync with the author controller
 
         // =========================================================
         // SHARED COMPONENTS
@@ -59,7 +62,7 @@ namespace DunGen.Editor
         private void OnDisable()
         {
             _nodePositions.Clear();
-            _flatGraph = null;
+            _templateGraph = null;
             _styleProvider.Clear();
         }
 
@@ -150,9 +153,8 @@ namespace DunGen.Editor
             // Update graph data
             if (currentTemplate != null)
             {
-                // In Author mode, we want to see the ORIGINAL structure (including rewrite sites)
-                // NOT the expanded flat graph (which removes placeholders)
-                _flatGraph = new ResolvedGraph(currentTemplate.nodes, currentTemplate.edges);
+                // Authoring view: draw the template as-authored (no rewrite resolution here).
+                _templateGraph = FlatGraph.FromTemplateCycle(currentTemplate);
 
                 // Build node depth map
                 _styleProvider.BuildDepthMap(currentTemplate);
@@ -164,13 +166,14 @@ namespace DunGen.Editor
             // Draw grid
             _renderer.DrawGrid(canvasRect, _camera);
 
-            // Draw graph
-            if (_flatGraph != null && _nodePositions.Count > 0)
+            // Draw graph (edges + nodes)
+            if (_templateGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider);
-                _renderer.DrawNodes(_flatGraph, _nodePositions, canvasRect, _camera, _styleProvider,
+                _renderer.DrawEdges(_templateGraph, _nodePositions, canvasRect, _camera, _styleProvider);
+                _renderer.DrawNodes(_templateGraph, _nodePositions, canvasRect, _camera, _styleProvider,
                     currentTemplate, _authorController.SelectedNode);
             }
+
 
             // Draw author overlays (placement preview, connection line, etc.)
             _authorController.DrawOverlays(canvasRect, _camera);
@@ -246,7 +249,7 @@ namespace DunGen.Editor
 
             // Clear visual data
             _nodePositions.Clear();
-            _flatGraph = null;
+            _templateGraph = null;
 
             // Create fresh empty cycle
             currentTemplate = new DungeonCycle();
@@ -383,7 +386,7 @@ namespace DunGen.Editor
             }
 
             _nodePositions.Clear();
-            _flatGraph = null;
+            _templateGraph = null;
 
             // Set as current template
             currentTemplate = loadedCycle;

@@ -3,31 +3,28 @@ using UnityEngine;
 
 namespace DunGen.Editor
 {
-    /// <summary>
-    /// Preview mode controller: Generate and view expanded cycles.
-    /// Uses hierarchical preview layout for generated dungeons.
-    /// </summary>
+    
     public sealed class PreviewModeController : IModeController
     {
-        private DungeonCycle _cycle;
+        private FlatGraph _flatGraph;
         private Dictionary<GraphNode, Vector2> _autoPositions = new Dictionary<GraphNode, Vector2>();
-        private PreviewLayoutEngine.LayoutResult _hierarchicalLayout;
+        private PreviewLayoutEngine.Result _layout;
         private float _nodeRadius;
         private GraphNode _selectedNode;
         private int _currentSeed;
 
         public GraphNode SelectedNode => _selectedNode;
         public int CurrentSeed => _currentSeed;
-        public PreviewLayoutEngine.LayoutResult HierarchicalLayout => _hierarchicalLayout;
+        public PreviewLayoutEngine.Result Layout => _layout;
 
         public PreviewModeController(float nodeRadius)
         {
             _nodeRadius = nodeRadius;
         }
 
-        public void SetCycle(DungeonCycle cycle)
+        public void SetGraph(FlatGraph graph)
         {
-            _cycle = cycle;
+            _flatGraph = graph;
             RegenerateLayout();
         }
 
@@ -38,19 +35,19 @@ namespace DunGen.Editor
 
         public void RegenerateLayout()
         {
-            if (_cycle == null)
+            if (_flatGraph == null)
             {
                 _autoPositions.Clear();
-                _hierarchicalLayout = null;
+                _layout = null;
                 return;
             }
 
-            // Use the preview layout engine for hierarchical layout
-            _hierarchicalLayout = PreviewLayoutEngine.ComputeLayout(_cycle);
+            // Compute the layout
+            _layout = PreviewLayoutEngine.Compute(_flatGraph);
 
-            // Extract flat positions for backward compatibility
-            _autoPositions = _hierarchicalLayout != null
-                ? _hierarchicalLayout.allPositions
+            // Store the computed positions
+            _autoPositions = _layout != null
+                ? _layout.positions
                 : new Dictionary<GraphNode, Vector2>();
         }
 
@@ -76,7 +73,7 @@ namespace DunGen.Editor
         public void OnModeEnter()
         {
             // Ensure we have positions when entering preview mode
-            if (_cycle != null && _autoPositions.Count == 0)
+            if (_flatGraph != null && _autoPositions.Count == 0)
                 RegenerateLayout();
         }
 

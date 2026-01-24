@@ -126,7 +126,7 @@ namespace DunGen.Editor
         /// <param name="canvasRect"></param>
         /// <param name="camera"></param>
         public void DrawEdges(
-            ResolvedGraph graph,
+            FlatGraph graph,
             Dictionary<GraphNode, Vector2> positions,
             Rect canvasRect,
             CameraController camera,
@@ -274,7 +274,7 @@ namespace DunGen.Editor
         // =========================================================
 
         public void DrawNodes(
-            ResolvedGraph graph,
+            FlatGraph graph,
             Dictionary<GraphNode, Vector2> positions,
             Rect canvasRect,
             CameraController camera,
