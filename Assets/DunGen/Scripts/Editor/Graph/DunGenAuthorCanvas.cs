@@ -28,7 +28,7 @@ namespace DunGen.Editor
         // SHARED COMPONENTS
         // =========================================================
         private CameraController _camera = new CameraController();
-        private AuthoringGraphRenderer _renderer = new AuthoringGraphRenderer();
+        private GraphRenderer _renderer = new GraphRenderer();
         private NodeStyleProvider _styleProvider = new NodeStyleProvider();
         private AuthorInspector _inspector;
 

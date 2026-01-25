@@ -1,0 +1,108 @@
+{
+    "version": 1,
+    "metadata": {
+        "name": "Test.dungen",
+        "description": "",
+        "guid": "Test.dungen",
+        "createdTimestamp": 1769221141,
+        "modifiedTimestamp": 1769221141
+    },
+    "cycle": {
+        "nodes": [
+            {
+                "guid": "Node 0_0",
+                "label": "Node 0",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 1_1",
+                "label": "Node 1",
+                "roles": [
+                    "Start"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 2_2",
+                "label": "Node 2",
+                "roles": [
+                    "Goal"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 3_3",
+                "label": "Node 3",
+                "roles": [],
+                "grantedKeys": []
+            }
+        ],
+        "edges": [
+            {
+                "fromGuid": "Node 1_1",
+                "toGuid": "Node 3_3",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 1_1",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 2_2",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 2_2",
+                "toGuid": "Node 3_3",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            }
+        ],
+        "rewriteSites": [
+            {
+                "placeholderGuid": "Node 0_0",
+                "replacementTemplateGuid": ""
+            }
+        ],
+        "positions": [
+            {
+                "nodeGuid": "Node 0_0",
+                "x": 8.0,
+                "y": 119.5
+            },
+            {
+                "nodeGuid": "Node 1_1",
+                "x": -114.0,
+                "y": 7.5
+            },
+            {
+                "nodeGuid": "Node 2_2",
+                "x": 109.0,
+                "y": 0.5
+            },
+            {
+                "nodeGuid": "Node 3_3",
+                "x": 5.0,
+                "y": -112.5
+            }
+        ],
+        "startNodeIndex": 1,
+        "goalNodeIndex": 2
+    }
+}

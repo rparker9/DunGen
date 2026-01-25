@@ -20,7 +20,7 @@ namespace DunGen.Editor
     /// Rendering pipeline in this window:
     /// - Generate nested + flat graphs.
     /// - Compute a 2D planar (or fallback) layout for the flat graph via <see cref="PreviewLayoutEngine"/>.
-    /// - Render the positioned flat graph via <see cref="PreviewGraphRenderer"/>.
+    /// - Render the positioned flat graph via <see cref="GraphRenderer"/>.
     /// </summary>
     public sealed class DunGenPreviewCanvas : EditorWindow
     {
@@ -60,7 +60,7 @@ namespace DunGen.Editor
         // VIEW + UI
         // =========================================================
 
-        private AuthoringGraphRenderer _renderer;
+        private GraphRenderer _renderer;
 
         /// <summary>Camera-like state for panning/zooming in the canvas.</summary>
         private CameraController _camera;
@@ -108,7 +108,7 @@ namespace DunGen.Editor
         private void OnEnable()
         {
             _camera = new CameraController();
-            _renderer = new AuthoringGraphRenderer();
+            _renderer = new GraphRenderer();
             _styleProvider = new NodeStyleProvider();
             _previewController = new PreviewModeController(25f); // Hit-test radius in *world* space (before zoom).
             _inspector = new PreviewInspector(_styleProvider);

@@ -8,7 +8,7 @@ namespace DunGen.Editor
     /// Handles all rendering for the graph editor: grid, nodes, edges, labels.
     /// UPDATED: adds cycle-boundary rings + slot marker rendering.
     /// </summary>
-    public sealed class AuthoringGraphRenderer
+    public sealed class GraphRenderer
     {
         private static readonly Color BackgroundColor = new Color(0.16f, 0.16f, 0.16f);
         private static readonly Color GridMinorColor = new Color(1f, 1f, 1f, 0.06f);
@@ -387,14 +387,29 @@ namespace DunGen.Editor
 
             for (int i = 0; i < node.grantedKeys.Count && i < maxKeys; i++)
             {
+                // Evenly space keys around the node
                 float angle = startAngle - (i * arcPerKey);
 
-                float keyRadius = screenRadius + iconSize * 0.8f;
+                // Position the key just outside the node circle
+                float keyRadius = screenRadius + iconSize * 0.5f;
                 Vector2 keyPos = screenPos + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * keyRadius;
 
+                // Draw label for key ID
+                var labelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 8
+                };
+                labelStyle.normal.textColor = Color.white;
+                labelStyle.fontSize = 8;
+                var labelRect = new Rect(keyPos.x - 10f, keyPos.y - 20f, 20f, 15f);
+                GUI.Label(labelRect, node.grantedKeys[i].ToString(), labelStyle);
+
+                // Draw key icon
                 Handles.color = KeyColor;
                 Handles.DrawSolidDisc(keyPos, Vector3.forward, iconSize);
 
+                // Inner shading
                 Handles.color = new Color(0.2f, 0.2f, 0.2f, 0.85f);
                 Handles.DrawSolidDisc(keyPos, Vector3.forward, iconSize * 0.35f);
             }

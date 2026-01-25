@@ -33,7 +33,8 @@ namespace DunGen.Editor
         public void BuildDepthMap(DungeonCycle rootCycle)
         {
             _nodeDepth.Clear();
-            if (rootCycle == null) return;
+            if (rootCycle == null) 
+                return;
             MarkCycleNodesRecursive(rootCycle, depth: 0);
         }
 
@@ -62,7 +63,8 @@ namespace DunGen.Editor
 
         public bool IsSubcycleNode(GraphNode node)
         {
-            if (node == null) return false;
+            if (node == null) 
+                return false;
             return _nodeDepth.TryGetValue(node, out int d) && d > 0;
         }
 
