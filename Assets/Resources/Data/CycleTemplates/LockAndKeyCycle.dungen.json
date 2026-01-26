@@ -1,0 +1,156 @@
+{
+    "version": 1,
+    "metadata": {
+        "name": "LockAndKeyCycle.dungen",
+        "description": "",
+        "guid": "LockAndKeyCycle.dungen",
+        "createdTimestamp": 1769322473,
+        "modifiedTimestamp": 1769322473
+    },
+    "cycle": {
+        "nodes": [
+            {
+                "guid": "Node 0_0",
+                "label": "Node 0",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 1_1",
+                "label": "Node 1",
+                "roles": [
+                    "Start"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 2_2",
+                "label": "Node 2",
+                "roles": [
+                    "Goal"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 3_3",
+                "label": "Node 3",
+                "roles": [],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 4_4",
+                "label": "Node 4",
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
+            },
+            {
+                "guid": "Node 5_5",
+                "label": "Node 5",
+                "roles": [],
+                "grantedKeys": [
+                    1
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "fromGuid": "Node 1_1",
+                "toGuid": "Node 3_3",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 3_3",
+                "toGuid": "Node 0_0",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 3_3",
+                "toGuid": "Node 2_2",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": [
+                    1
+                ]
+            },
+            {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 4_4",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 4_4",
+                "toGuid": "Node 5_5",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
+                "fromGuid": "Node 5_5",
+                "toGuid": "Node 1_1",
+                "bidirectional": false,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            }
+        ],
+        "rewriteSites": [
+            {
+                "placeholderGuid": "Node 0_0",
+                "replacementTemplateGuid": ""
+            },
+            {
+                "placeholderGuid": "Node 4_4",
+                "replacementTemplateGuid": ""
+            }
+        ],
+        "positions": [
+            {
+                "nodeGuid": "Node 0_0",
+                "x": 79.0,
+                "y": 68.5
+            },
+            {
+                "nodeGuid": "Node 1_1",
+                "x": -100.0,
+                "y": 1.5
+            },
+            {
+                "nodeGuid": "Node 2_2",
+                "x": -81.0,
+                "y": 171.5
+            },
+            {
+                "nodeGuid": "Node 3_3",
+                "x": -31.0,
+                "y": 85.5
+            },
+            {
+                "nodeGuid": "Node 4_4",
+                "x": 86.0,
+                "y": -58.5
+            },
+            {
+                "nodeGuid": "Node 5_5",
+                "x": -24.0,
+                "y": -97.5
+            }
+        ],
+        "startNodeIndex": 1,
+        "goalNodeIndex": 2
+    }
+}
