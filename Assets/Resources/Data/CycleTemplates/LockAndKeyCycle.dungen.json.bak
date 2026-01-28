@@ -1,11 +1,11 @@
 {
-    "version": 2,
+    "version": 1,
     "metadata": {
         "name": "LockAndKeyCycle.dungen",
         "description": "",
         "guid": "LockAndKeyCycle.dungen",
-        "createdTimestamp": 1769472456,
-        "modifiedTimestamp": 1769472456
+        "createdTimestamp": 1769322473,
+        "modifiedTimestamp": 1769322473
     },
     "cycle": {
         "nodes": [
@@ -52,17 +52,7 @@
                 "label": "Node 5",
                 "roles": [],
                 "grantedKeys": [
-                    {
-                        "globalId": "key_1",
-                        "displayName": "Key 1",
-                        "type": "Hard",
-                        "color": {
-                            "r": 1.0,
-                            "g": 0.8500000238418579,
-                            "b": 0.30000001192092898,
-                            "a": 1.0
-                        }
-                    }
+                    1
                 ]
             }
         ],
@@ -90,16 +80,7 @@
                 "isBlocked": false,
                 "hasSightline": false,
                 "requiredKeys": [
-                    {
-                        "requiredKeyId": "key_1",
-                        "type": "Standard",
-                        "color": {
-                            "r": 1.0,
-                            "g": 0.8509804010391235,
-                            "b": 0.2980392277240753,
-                            "a": 1.0
-                        }
-                    }
+                    1
                 ]
             },
             {

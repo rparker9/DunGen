@@ -5,20 +5,26 @@ using UnityEngine;
 namespace DunGen.Editor
 {
     /// <summary>
-    /// Editable inspector panel for Author Canvas.
-    /// Allows editing node/edge properties, roles, keys, locks, and special properties.
-    /// UPDATED: Added start/goal node controls and replacement template selector.
+    /// Inspector panel for author mode.
+    /// Displays node properties and allows editing keys, locks, roles, etc.
+    /// UPDATED: Supports KeyIdentity and LockRequirement editing.
     /// </summary>
     public sealed class AuthorInspector
     {
-        // Edge selection state
         private GraphEdge _selectedEdge;
+        private Vector2 _scrollPos;
 
-        public GraphEdge SelectedEdge => _selectedEdge;
+        // Key/Lock editing state
+        private KeyType _newKeyType = KeyType.Hard;
+        private LockType _newLockType = LockType.Standard;
 
-        public AuthorInspector()
-        {
-        }
+        // New key input fields
+        private string _newKeyIdInput = "";
+        private string _newKeyDisplayNameInput = "";
+        private bool _newKeyIdInput_initialized = false;
+
+        // New lock input fields
+        private string _newLockRequiredKeyId = "key_1";
 
         public void SetSelectedEdge(GraphEdge edge)
         {
@@ -30,13 +36,9 @@ namespace DunGen.Editor
             _selectedEdge = null;
         }
 
-        // =========================================================
-        // MAIN INSPECTOR
-        // =========================================================
-
         public void DrawInspector(
             Rect rect,
-            DungeonCycle currentTemplate,
+            DungeonCycle template,
             GraphNode selectedNode,
             System.Action onTemplateChanged)
         {
@@ -45,497 +47,461 @@ namespace DunGen.Editor
             EditorGUILayout.LabelField("Author Inspector", EditorStyles.boldLabel);
             EditorGUILayout.Space();
 
-            // Template info
-            if (currentTemplate != null)
-            {
-                EditorGUILayout.LabelField("Template", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("Nodes:", currentTemplate.nodes.Count.ToString());
-                EditorGUILayout.LabelField("Edges:", currentTemplate.edges.Count.ToString());
+            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
 
-                // Show start/goal status
-                string startLabel = currentTemplate.startNode != null ? currentTemplate.startNode.label : "(none)";
-                string goalLabel = currentTemplate.goalNode != null ? currentTemplate.goalNode.label : "(none)";
-                EditorGUILayout.LabelField("Start:", startLabel);
-                EditorGUILayout.LabelField("Goal:", goalLabel);
-
-                EditorGUILayout.Space();
-            }
-
-            // Selected node info (editable)
             if (selectedNode != null)
             {
-                DrawNodeEditor(selectedNode, currentTemplate, onTemplateChanged);
+                DrawNodeInspector(selectedNode, template, onTemplateChanged);
             }
-            // Selected edge info (editable)
             else if (_selectedEdge != null)
             {
-                DrawEdgeEditor(_selectedEdge, currentTemplate, onTemplateChanged);
+                DrawEdgeInspector(_selectedEdge, onTemplateChanged);
+            }
+            else if (template != null)
+            {
+                DrawTemplateInspector(template, onTemplateChanged);
             }
             else
             {
-                EditorGUILayout.HelpBox("Select a node or edge to edit its properties", MessageType.Info);
+                EditorGUILayout.HelpBox("No selection", MessageType.Info);
             }
 
-            // Controls help
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "- Click: Select node\n" +
-                "- Drag: Move node\n" +
-                "- Shift+Click: Connect nodes\n" +
-                "- Delete: Remove node\n" +
-                "- Escape: Cancel operation\n" +
-                "- MMB: Pan\n" +
-                "- Scroll: Zoom",
-                MessageType.Info
-            );
+            EditorGUILayout.EndScrollView();
 
             GUILayout.EndArea();
         }
 
         // =========================================================
-        // NODE EDITOR
+        // NODE INSPECTOR
         // =========================================================
 
-        private void DrawNodeEditor(GraphNode node, DungeonCycle template, System.Action onChanged)
+        private void DrawNodeInspector(GraphNode node, DungeonCycle template, System.Action onChanged)
         {
             EditorGUILayout.LabelField("Selected Node", EditorStyles.boldLabel);
-
-            EditorGUI.BeginChangeCheck();
-
-            // Editable label
-            node.label = EditorGUILayout.TextField("Label:", node.label);
-
             EditorGUILayout.Space();
 
-            // Special properties FIRST (start/goal/rewrite)
-            DrawSpecialPropertiesEditor(node, template);
-
-            EditorGUILayout.Space();
-
-            // Keys section
-            DrawKeysEditor(node);
-
-            EditorGUILayout.Space();
-
-            // Roles section
-            DrawRolesEditor(node);
-
-            EditorGUILayout.Space();
-
-            // Connected edges (read-only)
-            EditorGUILayout.LabelField("Connected Edges", EditorStyles.boldLabel);
-            DrawConnectedEdges(node, template);
-
-            if (EditorGUI.EndChangeCheck())
+            // Label
+            EditorGUILayout.LabelField("Label:", EditorStyles.boldLabel);
+            string newLabel = EditorGUILayout.TextField(node.label);
+            if (newLabel != node.label)
             {
+                node.label = newLabel;
                 onChanged?.Invoke();
             }
-        }
 
-        private void DrawKeysEditor(GraphNode node)
-        {
-            EditorGUILayout.LabelField("Keys Granted", EditorStyles.boldLabel);
-
-            if (node.grantedKeys == null)
-                node.grantedKeys = new List<int>();
-
-            // Display existing keys
-            for (int i = node.grantedKeys.Count - 1; i >= 0; i--)
-            {
-                EditorGUILayout.BeginHorizontal();
-
-                node.grantedKeys[i] = EditorGUILayout.IntField($"Key {i + 1}:", node.grantedKeys[i]);
-
-                if (GUILayout.Button("×", GUILayout.Width(25)))
-                {
-                    node.grantedKeys.RemoveAt(i);
-                }
-
-                EditorGUILayout.EndHorizontal();
-            }
-
-            // Add key button
-            if (GUILayout.Button("+ Add Key"))
-            {
-                int newKeyId = node.grantedKeys.Count > 0
-                    ? node.grantedKeys[node.grantedKeys.Count - 1] + 1
-                    : 1;
-                node.grantedKeys.Add(newKeyId);
-            }
-        }
-
-        private void DrawRolesEditor(GraphNode node)
-        {
-            EditorGUILayout.LabelField("Additional Roles", EditorStyles.boldLabel);
-
-            if (node.roles == null)
-                node.roles = new List<NodeRole>();
-
-            // Display existing roles (excluding special auto-managed roles)
-            var specialRoles = new[] { NodeRoleType.Start, NodeRoleType.Goal, NodeRoleType.RewriteSite };
-
-            for (int i = node.roles.Count - 1; i >= 0; i--)
-            {
-                if (node.roles[i] == null) continue;
-
-                // Skip special roles (managed above)
-                if (System.Array.IndexOf(specialRoles, node.roles[i].type) >= 0)
-                    continue;
-
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField($"- {node.roles[i].type}", GUILayout.ExpandWidth(true));
-
-                if (GUILayout.Button("x", GUILayout.Width(25)))
-                {
-                    node.roles.RemoveAt(i);
-                }
-
-                EditorGUILayout.EndHorizontal();
-            }
-
-            // Add role dropdown
-            EditorGUILayout.BeginHorizontal();
-
-            // Get available roles (exclude Start/Goal/RewriteSite - they're managed above)
-            var availableRoles = new List<NodeRoleType>
-            {
-                NodeRoleType.Barrier,
-                NodeRoleType.Secret,
-                NodeRoleType.Danger,
-                NodeRoleType.FalseGoal,
-                NodeRoleType.Patrol,
-                NodeRoleType.Reward
-            };
-
-            if (GUILayout.Button("+ Add Role"))
-            {
-                GenericMenu menu = new GenericMenu();
-                foreach (var roleType in availableRoles)
-                {
-                    // Check if role already exists
-                    bool hasRole = node.HasRole(roleType);
-                    menu.AddItem(new GUIContent(roleType.ToString()), hasRole, () =>
-                    {
-                        if (!hasRole)
-                            node.AddRole(roleType);
-                    });
-                }
-                menu.ShowAsContext();
-            }
-
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawSpecialPropertiesEditor(GraphNode node, DungeonCycle template)
-        {
-            if (template == null)
-                return;
-
-            EditorGUILayout.LabelField("Special Properties", EditorStyles.boldLabel);
-
-            // Start Node
-            EditorGUI.BeginChangeCheck();
-            bool isStartNode = template.startNode == node;
-            bool shouldBeStartNode = EditorGUILayout.Toggle("Is Start Node:", isStartNode);
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                if (shouldBeStartNode && !isStartNode)
-                {
-                    // Set as start node (clear previous if any)
-                    if (template.startNode != null)
-                    {
-                        // Remove Start role from old start node
-                        template.startNode.roles.RemoveAll(r => r != null && r.type == NodeRoleType.Start);
-                    }
-
-                    template.startNode = node;
-
-                    // Ensure Start role
-                    if (!node.HasRole(NodeRoleType.Start))
-                        node.AddRole(NodeRoleType.Start);
-                }
-                else if (!shouldBeStartNode && isStartNode)
-                {
-                    // Clear start node
-                    template.startNode = null;
-
-                    // Remove Start role
-                    node.roles.RemoveAll(r => r != null && r.type == NodeRoleType.Start);
-                }
-            }
-
-            // Goal Node
-            EditorGUI.BeginChangeCheck();
-            bool isGoalNode = template.goalNode == node;
-            bool shouldBeGoalNode = EditorGUILayout.Toggle("Is Goal Node:", isGoalNode);
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                if (shouldBeGoalNode && !isGoalNode)
-                {
-                    // Set as goal node (clear previous if any)
-                    if (template.goalNode != null)
-                    {
-                        // Remove Goal role from old goal node
-                        template.goalNode.roles.RemoveAll(r => r != null && r.type == NodeRoleType.Goal);
-                    }
-
-                    template.goalNode = node;
-
-                    // Ensure Goal role
-                    if (!node.HasRole(NodeRoleType.Goal))
-                        node.AddRole(NodeRoleType.Goal);
-                }
-                else if (!shouldBeGoalNode && isGoalNode)
-                {
-                    // Clear goal node
-                    template.goalNode = null;
-
-                    // Remove Goal role
-                    node.roles.RemoveAll(r => r != null && r.type == NodeRoleType.Goal);
-                }
-            }
-
-            // Rewrite Site
-            if (template.rewriteSites == null)
-                template.rewriteSites = new List<RewriteSite>();
-
-            bool isRewriteSite = template.rewriteSites.Exists(s => s != null && s.placeholder == node);
-
-            EditorGUI.BeginChangeCheck();
-            bool shouldBeRewriteSite = EditorGUILayout.Toggle("Is Rewrite Site:", isRewriteSite);
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                if (shouldBeRewriteSite && !isRewriteSite)
-                {
-                    // Add as rewrite site
-                    template.rewriteSites.Add(new RewriteSite(node));
-
-                    // Ensure RewriteSite role
-                    if (!node.HasRole(NodeRoleType.RewriteSite))
-                        node.AddRole(NodeRoleType.RewriteSite);
-                }
-                else if (!shouldBeRewriteSite && isRewriteSite)
-                {
-                    // Remove from rewrite sites
-                    template.rewriteSites.RemoveAll(s => s != null && s.placeholder == node);
-
-                    // Remove RewriteSite role
-                    node.roles.RemoveAll(r => r != null && r.type == NodeRoleType.RewriteSite);
-                }
-            }
-
-            // Show replacement template selector if this is a rewrite site
-            if (isRewriteSite)
-            {
-                var site = template.rewriteSites.Find(s => s != null && s.placeholder == node);
-                if (site != null)
-                {
-                    DrawReplacementTemplateSelector(site);
-                }
-            }
-        }
-
-        private void DrawReplacementTemplateSelector(RewriteSite site)
-        {
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Replacement Template", EditorStyles.miniBoldLabel);
 
-            // Ensure template is loaded if GUID is set
-            if (!string.IsNullOrEmpty(site.replacementTemplateGuid))
+            // Roles
+            DrawNodeRoles(node, template, onChanged);
+
+            EditorGUILayout.Space();
+
+            // Granted Keys
+            DrawNodeKeys(node, onChanged);
+
+            EditorGUILayout.Space();
+
+            // Controls
+            EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "• Click node: Select\n" +
+                "• Drag node: Move\n" +
+                "• Shift+Click: Connect edge\n" +
+                "• Delete: Remove node",
+                MessageType.Info
+            );
+        }
+
+        private void DrawNodeRoles(GraphNode node, DungeonCycle template, System.Action onChanged)
+        {
+            EditorGUILayout.LabelField("Roles:", EditorStyles.boldLabel);
+
+            if (node.roles == null || node.roles.Count == 0)
             {
-                site.EnsureTemplateLoaded();
-            }
-
-            // Show current template if any
-            if (site.replacementTemplate != null)
-            {
-                EditorGUILayout.LabelField("Current:", site.replacementTemplate.name);
-                EditorGUILayout.LabelField("GUID:", site.replacementTemplate.guid);
-
-                if (GUILayout.Button("Clear Template"))
-                {
-                    site.replacementTemplate = null;
-                    site.replacementTemplateGuid = null;
-                }
+                EditorGUILayout.LabelField("(none)");
             }
             else
             {
-                EditorGUILayout.LabelField("Current:", "(none - will use random)");
-            }
-
-            // Select template button
-            if (GUILayout.Button("Select Template..."))
-            {
-                var templates = TemplateRegistry.GetAll();
-
-                if (templates.Count == 0)
+                for (int i = node.roles.Count - 1; i >= 0; i--)
                 {
-                    EditorUtility.DisplayDialog("No Templates", "No templates available. Create some templates first.", "OK");
-                    return;
-                }
+                    var role = node.roles[i];
+                    if (role == null) continue;
 
-                GenericMenu menu = new GenericMenu();
-
-                foreach (var template in templates)
-                {
-                    string templateName = template.name;
-                    menu.AddItem(new GUIContent(templateName), false, () =>
+                    using (new EditorGUILayout.HorizontalScope())
                     {
-                        site.SetReplacementTemplate(template);
-                    });
-                }
+                        EditorGUILayout.LabelField($"• {role.type}");
 
-                menu.ShowAsContext();
-            }
-        }
-
-        private void DrawConnectedEdges(GraphNode node, DungeonCycle template)
-        {
-            if (template == null || template.edges == null)
-            {
-                EditorGUILayout.LabelField("(none)");
-                return;
-            }
-
-            int edgeCount = 0;
-
-            foreach (var edge in template.edges)
-            {
-                if (edge == null) continue;
-
-                bool isOutgoing = edge.from == node;
-                bool isIncoming = edge.to == node;
-
-                if (!isOutgoing && !isIncoming) continue;
-
-                edgeCount++;
-
-                string direction = isOutgoing ? " -> " : " <- ";
-                GraphNode otherNode = isOutgoing ? edge.to : edge.from;
-                string otherLabel = otherNode != null && !string.IsNullOrEmpty(otherNode.label)
-                    ? otherNode.label
-                    : "?";
-
-                string edgeDesc = $"{direction} {otherLabel}";
-
-                var properties = new List<string>();
-
-                if (edge.bidirectional)
-                    properties.Add(" <-> ");
-                if (edge.isBlocked)
-                    properties.Add("BLOCKED");
-                if (edge.RequiresAnyKey())
-                    properties.Add($"REQD KEY {string.Join(",", edge.requiredKeys)}");
-
-                if (properties.Count > 0)
-                    edgeDesc += $" ({string.Join(", ", properties)})";
-
-                // Make edges clickable - use actual button
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    EditorGUILayout.LabelField("-", GUILayout.Width(15));
-                    if (GUILayout.Button(edgeDesc, GUI.skin.label))
-                    {
-                        _selectedEdge = edge;
+                        if (GUILayout.Button("X", GUILayout.Width(30)))
+                        {
+                            node.RemoveRole(role.type);
+                            onChanged?.Invoke();
+                        }
                     }
                 }
             }
 
-            if (edgeCount == 0)
+            // Add role buttons
+            using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.LabelField("(none)");
-            }
-        }
-
-        // =========================================================
-        // EDGE EDITOR
-        // =========================================================
-
-        private void DrawEdgeEditor(GraphEdge edge, DungeonCycle template, System.Action onChanged)
-        {
-            EditorGUILayout.LabelField("Selected Edge", EditorStyles.boldLabel);
-
-            if (edge.from != null && edge.to != null)
-            {
-                EditorGUILayout.LabelField("From:", edge.from.label);
-                EditorGUILayout.LabelField("To:", edge.to.label);
-            }
-
-            EditorGUILayout.Space();
-
-            EditorGUI.BeginChangeCheck();
-
-            // Edge properties
-            edge.bidirectional = EditorGUILayout.Toggle("Bidirectional:", edge.bidirectional);
-            edge.isBlocked = EditorGUILayout.Toggle("Blocked:", edge.isBlocked);
-            edge.hasSightline = EditorGUILayout.Toggle("Has Sightline:", edge.hasSightline);
-
-            EditorGUILayout.Space();
-
-            // Locks section
-            DrawLocksEditor(edge);
-
-            EditorGUILayout.Space();
-
-            // Delete edge button
-            GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
-            if (GUILayout.Button("Delete Edge"))
-            {
-                if (EditorUtility.DisplayDialog(
-                    "Delete Edge",
-                    "Are you sure you want to delete this edge?",
-                    "Delete",
-                    "Cancel"))
+                if (GUILayout.Button("+ Start"))
                 {
+                    node.AddRole(NodeRoleType.Start);
+                    if (template != null) template.startNode = node;
+                    onChanged?.Invoke();
+                }
+
+                if (GUILayout.Button("+ Goal"))
+                {
+                    node.AddRole(NodeRoleType.Goal);
+                    if (template != null) template.goalNode = node;
+                    onChanged?.Invoke();
+                }
+
+                if (GUILayout.Button("+ Rewrite"))
+                {
+                    node.AddRole(NodeRoleType.RewriteSite);
                     if (template != null)
                     {
-                        template.edges.Remove(edge);
-                        _selectedEdge = null;
-                        onChanged?.Invoke();
+                        var site = new RewriteSite(node);
+                        template.rewriteSites.Add(site);
                     }
+                    onChanged?.Invoke();
                 }
-            }
-            GUI.backgroundColor = Color.white;
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                onChanged?.Invoke();
             }
         }
 
-        private void DrawLocksEditor(GraphEdge edge)
+        private void DrawNodeKeys(GraphNode node, System.Action onChanged)
         {
-            EditorGUILayout.LabelField("Required Keys (Locks)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Granted Keys:", EditorStyles.boldLabel);
 
-            if (edge.requiredKeys == null)
-                edge.requiredKeys = new List<int>();
+            if (node.grantedKeys == null)
+                node.grantedKeys = new List<KeyIdentity>();
 
-            // Display existing locks
-            for (int i = edge.requiredKeys.Count - 1; i >= 0; i--)
+            if (node.grantedKeys.Count == 0)
             {
-                EditorGUILayout.BeginHorizontal();
-
-                edge.requiredKeys[i] = EditorGUILayout.IntField($"Key {i + 1}:", edge.requiredKeys[i]);
-
-                if (GUILayout.Button("×", GUILayout.Width(25)))
+                EditorGUILayout.LabelField("(none)");
+            }
+            else
+            {
+                for (int i = node.grantedKeys.Count - 1; i >= 0; i--)
                 {
-                    edge.requiredKeys.RemoveAt(i);
-                }
+                    var key = node.grantedKeys[i];
+                    if (key == null) continue;
 
-                EditorGUILayout.EndHorizontal();
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                    {
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            // Color indicator
+                            var prevColor = GUI.backgroundColor;
+                            GUI.backgroundColor = key.color;
+                            GUILayout.Box("", GUILayout.Width(20), GUILayout.Height(20));
+                            GUI.backgroundColor = prevColor;
+
+                            // Key type
+                            EditorGUILayout.LabelField($"{key.type} Key", EditorStyles.boldLabel);
+
+                            GUILayout.FlexibleSpace();
+
+                            // Remove button
+                            if (GUILayout.Button("X", GUILayout.Width(30)))
+                            {
+                                node.grantedKeys.RemoveAt(i);
+                                onChanged?.Invoke();
+                            }
+                        }
+
+                        // Editable fields
+                        string newId = EditorGUILayout.TextField("Key ID:", key.globalId);
+                        if (newId != key.globalId)
+                        {
+                            key.globalId = newId;
+                            onChanged?.Invoke();
+                        }
+
+                        string newDisplayName = EditorGUILayout.TextField("Display Name:", key.displayName);
+                        if (newDisplayName != key.displayName)
+                        {
+                            key.displayName = newDisplayName;
+                            onChanged?.Invoke();
+                        }
+
+                        KeyType newType = (KeyType)EditorGUILayout.EnumPopup("Type:", key.type);
+                        if (newType != key.type)
+                        {
+                            key.type = newType;
+                            key.color = GetDefaultColorForKeyType(newType);
+                            onChanged?.Invoke();
+                        }
+
+                        Color newColor = EditorGUILayout.ColorField("Color:", key.color);
+                        if (newColor != key.color)
+                        {
+                            key.color = newColor;
+                            onChanged?.Invoke();
+                        }
+                    }
+                }
             }
 
-            // Add lock button
-            if (GUILayout.Button("+ Add Lock"))
+            EditorGUILayout.Space();
+
+            // Add new key
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                int newKeyId = edge.requiredKeys.Count > 0
-                    ? edge.requiredKeys[edge.requiredKeys.Count - 1] + 1
-                    : 1;
-                edge.requiredKeys.Add(newKeyId);
+                EditorGUILayout.LabelField("Add New Key", EditorStyles.boldLabel);
+
+                // Temporary state for new key (stored as instance variables at class level)
+                if (!_newKeyIdInput_initialized)
+                {
+                    _newKeyIdInput = $"key_{node.grantedKeys.Count + 1}";
+                    _newKeyDisplayNameInput = $"Key {node.grantedKeys.Count + 1}";
+                    _newKeyIdInput_initialized = true;
+                }
+
+                _newKeyType = (KeyType)EditorGUILayout.EnumPopup("Type:", _newKeyType);
+                _newKeyIdInput = EditorGUILayout.TextField("Key ID:", _newKeyIdInput);
+                _newKeyDisplayNameInput = EditorGUILayout.TextField("Display Name:", _newKeyDisplayNameInput);
+
+                if (GUILayout.Button("Add Key"))
+                {
+                    var newKey = new KeyIdentity
+                    {
+                        globalId = _newKeyIdInput,
+                        displayName = _newKeyDisplayNameInput,
+                        type = _newKeyType,
+                        color = GetDefaultColorForKeyType(_newKeyType)
+                    };
+                    node.grantedKeys.Add(newKey);
+
+                    // Reset for next key
+                    _newKeyIdInput = $"key_{node.grantedKeys.Count + 1}";
+                    _newKeyDisplayNameInput = $"Key {node.grantedKeys.Count + 1}";
+
+                    onChanged?.Invoke();
+                }
+            }
+        }
+
+        // =========================================================
+        // EDGE INSPECTOR
+        // =========================================================
+
+        private void DrawEdgeInspector(GraphEdge edge, System.Action onChanged)
+        {
+            EditorGUILayout.LabelField("Selected Edge", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+
+            // Edge properties
+            EditorGUILayout.LabelField("Properties:", EditorStyles.boldLabel);
+
+            bool newBidirectional = EditorGUILayout.Toggle("Bidirectional:", edge.bidirectional);
+            if (newBidirectional != edge.bidirectional)
+            {
+                edge.bidirectional = newBidirectional;
+                onChanged?.Invoke();
+            }
+
+            bool newBlocked = EditorGUILayout.Toggle("Blocked:", edge.isBlocked);
+            if (newBlocked != edge.isBlocked)
+            {
+                edge.isBlocked = newBlocked;
+                onChanged?.Invoke();
+            }
+
+            bool newSightline = EditorGUILayout.Toggle("Has Sightline:", edge.hasSightline);
+            if (newSightline != edge.hasSightline)
+            {
+                edge.hasSightline = newSightline;
+                onChanged?.Invoke();
+            }
+
+            EditorGUILayout.Space();
+
+            // Lock requirements
+            DrawEdgeLocks(edge, onChanged);
+
+            EditorGUILayout.Space();
+
+            // Controls
+            EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "• Click edge: Select\n" +
+                "• Delete: Remove edge",
+                MessageType.Info
+            );
+        }
+
+        private void DrawEdgeLocks(GraphEdge edge, System.Action onChanged)
+        {
+            EditorGUILayout.LabelField("Lock Requirements:", EditorStyles.boldLabel);
+
+            if (edge.requiredKeys == null)
+                edge.requiredKeys = new List<LockRequirement>();
+
+            if (edge.requiredKeys.Count == 0)
+            {
+                EditorGUILayout.LabelField("(none)");
+            }
+            else
+            {
+                for (int i = edge.requiredKeys.Count - 1; i >= 0; i--)
+                {
+                    var req = edge.requiredKeys[i];
+                    if (req == null) continue;
+
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                    {
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            // Color indicator
+                            var prevColor = GUI.backgroundColor;
+                            GUI.backgroundColor = req.color;
+                            GUILayout.Box("", GUILayout.Width(20), GUILayout.Height(20));
+                            GUI.backgroundColor = prevColor;
+
+                            // Lock type
+                            EditorGUILayout.LabelField($"{req.type} Lock", EditorStyles.boldLabel);
+
+                            GUILayout.FlexibleSpace();
+
+                            // Remove button
+                            if (GUILayout.Button("X", GUILayout.Width(30)))
+                            {
+                                edge.requiredKeys.RemoveAt(i);
+                                onChanged?.Invoke();
+                            }
+                        }
+
+                        // Editable fields
+                        string newKeyId = EditorGUILayout.TextField("Required Key ID:", req.requiredKeyId);
+                        if (newKeyId != req.requiredKeyId)
+                        {
+                            req.requiredKeyId = newKeyId;
+                            onChanged?.Invoke();
+                        }
+
+                        LockType newType = (LockType)EditorGUILayout.EnumPopup("Type:", req.type);
+                        if (newType != req.type)
+                        {
+                            req.type = newType;
+                            req.color = GetDefaultColorForLockType(newType);
+                            onChanged?.Invoke();
+                        }
+
+                        Color newColor = EditorGUILayout.ColorField("Color:", req.color);
+                        if (newColor != req.color)
+                        {
+                            req.color = newColor;
+                            onChanged?.Invoke();
+                        }
+                    }
+                }
+            }
+
+            EditorGUILayout.Space();
+
+            // Add new lock
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Add New Lock", EditorStyles.boldLabel);
+
+                // Initialize default values if needed
+                if (string.IsNullOrEmpty(_newLockRequiredKeyId))
+                {
+                    _newLockRequiredKeyId = "key_1";
+                }
+
+                _newLockType = (LockType)EditorGUILayout.EnumPopup("Type:", _newLockType);
+                _newLockRequiredKeyId = EditorGUILayout.TextField("Required Key ID:", _newLockRequiredKeyId);
+
+                EditorGUILayout.HelpBox(
+                    "Specify the Key ID this lock requires.\n" +
+                    "Example: 'key_1', 'red_key', 'ability_swim'",
+                    MessageType.Info
+                );
+
+                if (GUILayout.Button("Add Lock"))
+                {
+                    var newLock = new LockRequirement
+                    {
+                        requiredKeyId = _newLockRequiredKeyId,
+                        type = _newLockType,
+                        color = GetDefaultColorForLockType(_newLockType)
+                    };
+                    edge.requiredKeys.Add(newLock);
+                    onChanged?.Invoke();
+                }
+            }
+        }
+
+        // =========================================================
+        // TEMPLATE INSPECTOR
+        // =========================================================
+
+        private void DrawTemplateInspector(DungeonCycle template, System.Action onTemplateChanged)
+        {
+            EditorGUILayout.LabelField("Template Overview", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+
+            EditorGUILayout.LabelField("Nodes:", template.nodes?.Count.ToString() ?? "0");
+            EditorGUILayout.LabelField("Edges:", template.edges?.Count.ToString() ?? "0");
+            EditorGUILayout.LabelField("Rewrite Sites:", template.rewriteSites?.Count.ToString() ?? "0");
+
+            EditorGUILayout.Space();
+
+            if (template.startNode != null)
+                EditorGUILayout.LabelField("Start Node:", template.startNode.label);
+            else
+                EditorGUILayout.HelpBox("No start node set", MessageType.Warning);
+
+            if (template.goalNode != null)
+                EditorGUILayout.LabelField("Goal Node:", template.goalNode.label);
+            else
+                EditorGUILayout.HelpBox("No goal node set", MessageType.Warning);
+
+            EditorGUILayout.Space();
+
+            EditorGUILayout.LabelField("Usage", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "• Add Node: Click '+ Node' button\n" +
+                "• Add Edge: Shift+Click two nodes\n" +
+                "• Move Node: Drag node\n" +
+                "• Delete: Select and press Delete",
+                MessageType.Info
+            );
+        }
+
+        // =========================================================
+        // HELPER METHODS
+        // =========================================================
+
+        private Color GetDefaultColorForKeyType(KeyType type)
+        {
+            switch (type)
+            {
+                case KeyType.Hard: return new Color(1.0f, 0.85f, 0.3f);
+                case KeyType.Soft: return new Color(0.5f, 0.85f, 1.0f);
+                case KeyType.Ability: return new Color(0.5f, 1.0f, 0.5f);
+                case KeyType.Item: return new Color(1.0f, 0.5f, 0.2f);
+                case KeyType.Trigger: return new Color(0.8f, 0.3f, 1.0f);
+                case KeyType.Narrative: return new Color(0.3f, 0.6f, 1.0f);
+                default: return Color.yellow;
+            }
+        }
+
+        private Color GetDefaultColorForLockType(LockType type)
+        {
+            switch (type)
+            {
+                case LockType.Standard: return new Color(0.95f, 0.4f, 0.2f);
+                case LockType.Terrain: return new Color(0.6f, 0.3f, 0.1f);
+                case LockType.Ability: return new Color(0.4f, 0.8f, 0.4f);
+                case LockType.Puzzle: return new Color(0.7f, 0.3f, 0.9f);
+                case LockType.OneWay: return new Color(1.0f, 0.6f, 0.0f);
+                case LockType.Narrative: return new Color(0.3f, 0.5f, 0.9f);
+                case LockType.Boss: return new Color(0.9f, 0.1f, 0.1f);
+                default: return Color.red;
             }
         }
     }

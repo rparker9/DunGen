@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace DunGen
 {
+    /// <summary>
+    /// Represents a node on a graph
+    /// </summary>
     [System.Serializable]
     public class GraphNode
     {
@@ -14,14 +18,14 @@ namespace DunGen
         public List<NodeRole> roles = new List<NodeRole>();
 
         // KEYS: Keys granted when this node is visited/completed
-        public List<int> grantedKeys = new List<int>();
+        public List<KeyIdentity> grantedKeys = new List<KeyIdentity>();
 
         public GraphNode()
         {
             // Empty constructor for manual authoring
         }
 
-        // ---------- role helpers ----------
+        // -------------- Role Helpers ---------------
         public bool HasRole(NodeRoleType t)
         {
             for (int i = 0; i < roles.Count; i++)
@@ -48,36 +52,52 @@ namespace DunGen
                     roles.RemoveAt(i);
         }
 
-        // ---------- key helpers ----------
+        // --------------- Key Helpers ---------------
         public bool GrantsAnyKey()
         {
             return grantedKeys != null && grantedKeys.Count > 0;
         }
 
-        public bool GrantsKey(int keyId)
+        public bool GrantsKey(string keyId)
         {
-            return grantedKeys != null && grantedKeys.Contains(keyId);
+            return grantedKeys != null && grantedKeys.Any(k => k != null && k.globalId == keyId);
         }
 
-        public void AddGrantedKey(int keyId)
+        public void AddGrantedKey(KeyIdentity key)
         {
             if (grantedKeys == null)
-                grantedKeys = new List<int>();
+                grantedKeys = new List<KeyIdentity>();
 
-            if (!grantedKeys.Contains(keyId))
-                grantedKeys.Add(keyId);
+            if (key != null && !grantedKeys.Any(k => k != null && k.globalId == key.globalId))
+                grantedKeys.Add(key);
         }
 
-        public void RemoveGrantedKey(int keyId)
+        public void RemoveGrantedKey(string keyId)
         {
             if (grantedKeys != null)
-                grantedKeys.Remove(keyId);
+                grantedKeys.RemoveAll(k => k != null && k.globalId == keyId);
         }
 
         public void ClearGrantedKeys()
         {
             if (grantedKeys != null)
                 grantedKeys.Clear();
+        }
+
+        // --------------- Backward Compatibility ---------------
+
+        /// <summary>
+        /// Add key from legacy int ID (for migration from old templates)
+        /// </summary>
+        public void AddGrantedKey(int legacyKeyId)
+        {
+            var key = new KeyIdentity
+            {
+                globalId = $"legacy_key_{legacyKeyId}",
+                displayName = $"Key {legacyKeyId}",
+                type = KeyType.Hard
+            };
+            AddGrantedKey(key);
         }
     }
 }

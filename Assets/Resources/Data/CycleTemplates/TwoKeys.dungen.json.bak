@@ -1,11 +1,11 @@
 {
-    "version": 2,
+    "version": 1,
     "metadata": {
         "name": "TwoKeys.dungen",
         "description": "",
         "guid": "TwoKeys.dungen",
-        "createdTimestamp": 1769472423,
-        "modifiedTimestamp": 1769472423
+        "createdTimestamp": 1769219476,
+        "modifiedTimestamp": 1769219476
     },
     "cycle": {
         "nodes": [
@@ -30,17 +30,7 @@
                 "label": "Node 2",
                 "roles": [],
                 "grantedKeys": [
-                    {
-                        "globalId": "red_key",
-                        "displayName": "RedKey",
-                        "type": "Hard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
+                    1
                 ]
             },
             {
@@ -48,17 +38,7 @@
                 "label": "Node 3",
                 "roles": [],
                 "grantedKeys": [
-                    {
-                        "globalId": "red_key",
-                        "displayName": "Red Key",
-                        "type": "Hard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
+                    2
                 ]
             },
             {
@@ -78,16 +58,8 @@
                 "isBlocked": false,
                 "hasSightline": false,
                 "requiredKeys": [
-                    {
-                        "requiredKeyId": "red_key",
-                        "type": "Standard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
+                    1,
+                    2
                 ]
             },
             {
@@ -105,16 +77,8 @@
                 "isBlocked": false,
                 "hasSightline": false,
                 "requiredKeys": [
-                    {
-                        "requiredKeyId": "red_key",
-                        "type": "Standard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.2140895426273346,
-                            "b": 0.19999998807907105,
-                            "a": 1.0
-                        }
-                    }
+                    1,
+                    2
                 ]
             },
             {
@@ -148,23 +112,23 @@
             },
             {
                 "nodeGuid": "Node 1_1",
-                "x": 147.03805541992188,
-                "y": 5.955083847045898
+                "x": 138.40841674804688,
+                "y": -3.406346559524536
             },
             {
                 "nodeGuid": "Node 2_2",
-                "x": 75.28924560546875,
-                "y": 148.8497772216797
+                "x": 84.5391616821289,
+                "y": 145.14222717285157
             },
             {
                 "nodeGuid": "Node 3_3",
-                "x": 10.172683715820313,
-                "y": -92.32270050048828
+                "x": 6.183871269226074,
+                "y": -96.4532470703125
             },
             {
                 "nodeGuid": "Node 4_4",
-                "x": -72.42888641357422,
-                "y": 142.217529296875
+                "x": -72.17141723632813,
+                "y": 142.69361877441407
             }
         ],
         "startNodeIndex": 0,

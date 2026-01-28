@@ -5,7 +5,6 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Provides visual styling for nodes: colors, labels, and depth tracking.
-    /// UPDATED: Slot markers for subcycle Start/Goal.
     /// </summary>
     public sealed class NodeStyleProvider
     {

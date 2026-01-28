@@ -6,7 +6,6 @@ namespace DunGen.Editor
 {
     /// <summary>
     /// Handles all rendering for the graph editor: grid, nodes, edges, labels.
-    /// UPDATED: adds cycle-boundary rings + slot marker rendering.
     /// </summary>
     public sealed class GraphRenderer
     {
@@ -17,11 +16,12 @@ namespace DunGen.Editor
         private static readonly Color EdgeNormalColor = new Color(0.80f, 0.80f, 0.80f, 0.90f);
         private static readonly Color EdgeBlockedColor = new Color(0.80f, 0.35f, 0.35f, 0.65f);
         private static readonly Color EdgeSightlineColor = new Color(0.70f, 0.90f, 0.95f, 0.25f);
-        private static readonly Color EdgeLockedColor = new Color(0.95f, 0.65f, 0.25f, 0.85f);
 
-        private static readonly Color KeyColor = new Color(1.0f, 0.85f, 0.3f);
-        private static readonly Color LockColor = new Color(0.95f, 0.4f, 0.2f);
         private static readonly Color SelectionColor = Color.cyan;
+
+        // Default colors (fallback if KeyIdentity/LockRequirement doesn't have color set)
+        private static readonly Color DefaultKeyColor = new Color(1.0f, 0.85f, 0.3f);
+        private static readonly Color DefaultLockColor = new Color(0.95f, 0.4f, 0.2f);
 
         // Cycle ring base color
         private static readonly Color CycleRingColor = new Color(1f, 1f, 1f, 0.14f);
@@ -96,7 +96,6 @@ namespace DunGen.Editor
 
             Handles.BeginGUI();
 
-            // Draw outer-to-inner so inner rings sit on top a bit.
             for (int i = 0; i < bounds.Count; i++)
             {
                 var b = bounds[i];
@@ -104,7 +103,6 @@ namespace DunGen.Editor
                 Vector2 screenCenter = camera.WorldToScreen(b.Center, canvasRect);
                 float screenRadius = b.Radius * camera.Zoom;
 
-                // Fade by depth
                 float a = Mathf.Clamp01(CycleRingColor.a * Mathf.Pow(0.75f, b.Depth));
                 Handles.color = new Color(CycleRingColor.r, CycleRingColor.g, CycleRingColor.b, a);
 
@@ -118,19 +116,13 @@ namespace DunGen.Editor
         // EDGES
         // =========================================================
 
-        /// <summary>
-        /// Draws all edges in the graph.
-        /// </summary>
-        /// <param name="graph"></param>
-        /// <param name="positions"></param>
-        /// <param name="canvasRect"></param>
-        /// <param name="camera"></param>
         public void DrawEdges(
             FlatGraph graph,
             Dictionary<GraphNode, Vector2> positions,
             Rect canvasRect,
             CameraController camera,
-            NodeStyleProvider styleProvider)
+            NodeStyleProvider styleProvider,
+            GraphEdge selectedEdge = null)
         {
             if (graph == null || graph.edges == null)
                 return;
@@ -146,53 +138,54 @@ namespace DunGen.Editor
                 if (!positions.TryGetValue(edge.to, out Vector2 toPos))
                     continue;
 
-                DrawEdge(edge, fromPos, toPos, canvasRect, camera, styleProvider);
+                bool isSelected = edge == selectedEdge;
+                DrawEdge(edge, fromPos, toPos, canvasRect, camera, styleProvider, isSelected);
             }
         }
 
-        /// <summary>
-        /// Draws a single edge between two world positions.
-        /// </summary>
-        /// <param name="edge"></param>
-        /// <param name="worldFrom"></param>
-        /// <param name="worldTo"></param>
-        /// <param name="canvasRect"></param>
-        /// <param name="camera"></param>
         private void DrawEdge(
             GraphEdge edge,
             Vector2 worldFrom,
             Vector2 worldTo,
             Rect canvasRect,
             CameraController camera,
-            NodeStyleProvider styleProvider)
+            NodeStyleProvider styleProvider,
+            bool isSelected = false)
         {
-            // Convert to screen space first
             Vector2 screenFrom = camera.WorldToScreen(worldFrom, canvasRect);
             Vector2 screenTo = camera.WorldToScreen(worldTo, canvasRect);
 
             Color edgeColor = EdgeNormalColor;
 
-            // Determine edge color based on properties
+            // Determine edge color
             if (edge.isBlocked)
                 edgeColor = EdgeBlockedColor;
             else if (edge.hasSightline)
                 edgeColor = EdgeSightlineColor;
             else if (edge.RequiresAnyKey())
-                edgeColor = EdgeLockedColor;
+            {
+                // Use first lock's color if available
+                var firstLock = edge.requiredKeys[0];
+                edgeColor = firstLock.color;
+            }
 
-            // Direction from A to B
             Vector2 dir = (screenTo - screenFrom).normalized;
-
-            // Trim so arrows don't overlap nodes
-            // We get the node size to determine how much to trim
             float nodeRadius = NodeStyleProvider.NodeSize * camera.Zoom;
-            float trim = nodeRadius + 4f; // extra padding
+            float trim = nodeRadius + 4f;
             Vector2 lineStart = screenFrom + dir * trim;
             Vector2 lineEnd = screenTo - dir * trim;
 
-
             Handles.BeginGUI();
 
+            // Draw selection highlight first (behind the edge)
+            if (isSelected)
+            {
+                Handles.color = SelectionColor;
+                float highlightWidth = Mathf.Clamp(8f * camera.Zoom, 5f, 12f);
+                Handles.DrawAAPolyLine(highlightWidth, lineStart, lineEnd);
+            }
+
+            // Draw main edge
             Handles.color = edgeColor;
 
             float arrowDepth = Mathf.Clamp(10f * camera.Zoom, 6f, 18f);
@@ -217,7 +210,7 @@ namespace DunGen.Editor
             if (edge.bidirectional)
                 DrawArrowHead(tipA, -dir, arrowDepth, arrowWidth);
 
-            DrawEdgeLockIcon(edge, lineStart, lineEnd, camera);
+            DrawEdgeLockIcons(edge, lineStart, lineEnd, camera);
 
             Handles.EndGUI();
         }
@@ -237,7 +230,7 @@ namespace DunGen.Editor
             Handles.DrawAAConvexPolygon(tri);
         }
 
-        private void DrawEdgeLockIcon(GraphEdge edge, Vector2 lineStart, Vector2 lineEnd, CameraController camera)
+        private void DrawEdgeLockIcons(GraphEdge edge, Vector2 lineStart, Vector2 lineEnd, CameraController camera)
         {
             if (!edge.RequiresAnyKey())
                 return;
@@ -245,27 +238,54 @@ namespace DunGen.Editor
             Vector2 midpoint = (lineStart + lineEnd) * 0.5f;
             float iconSize = Mathf.Clamp(10f * camera.Zoom, 6f, 14f);
 
-            Handles.color = LockColor;
-            Handles.DrawSolidDisc(midpoint, Vector3.forward, iconSize);
+            // Draw multiple lock icons if multiple requirements
+            int lockCount = edge.requiredKeys.Count;
+            float spacing = iconSize * 2.5f;
+            float totalWidth = (lockCount - 1) * spacing;
+            float startOffset = -totalWidth * 0.5f;
 
-            Handles.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
-            Handles.DrawSolidDisc(midpoint, Vector3.forward, iconSize * 0.4f);
-
-            if (edge.requiredKeys != null && edge.requiredKeys.Count > 0)
+            for (int i = 0; i < lockCount; i++)
             {
+                var req = edge.requiredKeys[i];
+                if (req == null) continue;
+
+                Vector2 iconPos = midpoint + new Vector2(startOffset + i * spacing, 0);
+
+                // Use lock's color if available
+                Color lockColor = req.color;
+
+                Handles.color = lockColor;
+                Handles.DrawSolidDisc(iconPos, Vector3.forward, iconSize);
+
+                Handles.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+                Handles.DrawSolidDisc(iconPos, Vector3.forward, iconSize * 0.4f);
+
+                // Draw lock type indicator
                 var labelStyle = new GUIStyle(EditorStyles.miniLabel)
                 {
                     alignment = TextAnchor.MiddleCenter,
-                    fontSize = 8
+                    fontSize = 7
                 };
                 labelStyle.normal.textColor = Color.white;
 
-                string keyText = edge.requiredKeys.Count == 1
-                    ? edge.requiredKeys[0].ToString()
-                    : $"{edge.requiredKeys.Count}K";
+                string typeText = GetLockTypeShorthand(req.type);
+                var labelRect = new Rect(iconPos.x - 10f, iconPos.y - 15f, 20f, 12f);
+                GUI.Label(labelRect, typeText, labelStyle);
+            }
+        }
 
-                var labelRect = new Rect(midpoint.x - 15f, midpoint.y - 20f, 30f, 15f);
-                GUI.Label(labelRect, keyText, labelStyle);
+        private string GetLockTypeShorthand(LockType type)
+        {
+            switch (type)
+            {
+                case LockType.Standard: return "K";
+                case LockType.Terrain: return "T";
+                case LockType.Ability: return "A";
+                case LockType.Puzzle: return "P";
+                case LockType.OneWay: return "1W";
+                case LockType.Narrative: return "N";
+                case LockType.Boss: return "B";
+                default: return "?";
             }
         }
 
@@ -324,11 +344,9 @@ namespace DunGen.Editor
 
             if (isSlot)
             {
-                // Slot marker: hollow / faint
                 Handles.color = new Color(nodeColor.r, nodeColor.g, nodeColor.b, nodeColor.a);
                 Handles.DrawWireDisc(screenPos, Vector3.forward, screenRadius);
 
-                // Small inner dot to keep it �present�
                 Handles.color = new Color(nodeColor.r, nodeColor.g, nodeColor.b, nodeColor.a * 0.6f);
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, screenRadius * 0.25f);
             }
@@ -346,7 +364,7 @@ namespace DunGen.Editor
             string label = styleProvider.GetNodeLabel(node);
             DrawNodeLabel(screenPos, label, screenRadius);
 
-            DrawNodeKeyIcon(node, screenPos, screenRadius, camera);
+            DrawNodeKeyIcons(node, screenPos, screenRadius, camera);
         }
 
         private void DrawNodeLabel(Vector2 screenPos, string text, float radius)
@@ -372,7 +390,7 @@ namespace DunGen.Editor
             GUI.Label(labelRect, text, style);
         }
 
-        private void DrawNodeKeyIcon(GraphNode node, Vector2 screenPos, float screenRadius, CameraController camera)
+        private void DrawNodeKeyIcons(GraphNode node, Vector2 screenPos, float screenRadius, CameraController camera)
         {
             if (node == null || !node.GrantsAnyKey())
                 return;
@@ -387,34 +405,53 @@ namespace DunGen.Editor
 
             for (int i = 0; i < node.grantedKeys.Count && i < maxKeys; i++)
             {
-                // Evenly space keys around the node
+                var key = node.grantedKeys[i];
+                if (key == null) continue;
+
                 float angle = startAngle - (i * arcPerKey);
 
-                // Position the key just outside the node circle
                 float keyRadius = screenRadius + iconSize * 0.5f;
                 Vector2 keyPos = screenPos + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * keyRadius;
 
-                // Draw label for key ID
-                var labelStyle = new GUIStyle(EditorStyles.miniLabel)
-                {
-                    alignment = TextAnchor.MiddleCenter,
-                    fontSize = 8
-                };
-                labelStyle.normal.textColor = Color.white;
-                labelStyle.fontSize = 8;
-                var labelRect = new Rect(keyPos.x - 10f, keyPos.y - 20f, 20f, 15f);
-                GUI.Label(labelRect, node.grantedKeys[i].ToString(), labelStyle);
+                // Use key's color
+                Color keyColor = key.color;
 
                 // Draw key icon
-                Handles.color = KeyColor;
+                Handles.color = keyColor;
                 Handles.DrawSolidDisc(keyPos, Vector3.forward, iconSize);
 
                 // Inner shading
                 Handles.color = new Color(0.2f, 0.2f, 0.2f, 0.85f);
                 Handles.DrawSolidDisc(keyPos, Vector3.forward, iconSize * 0.35f);
+
+                // Draw key type indicator
+                var labelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 7
+                };
+                labelStyle.normal.textColor = Color.white;
+
+                string typeText = GetKeyTypeShorthand(key.type);
+                var labelRect = new Rect(keyPos.x - 8f, keyPos.y - 15f, 16f, 12f);
+                GUI.Label(labelRect, typeText, labelStyle);
             }
 
             Handles.EndGUI();
+        }
+
+        private string GetKeyTypeShorthand(KeyType type)
+        {
+            switch (type)
+            {
+                case KeyType.Hard: return "H";
+                case KeyType.Soft: return "S";
+                case KeyType.Ability: return "A";
+                case KeyType.Item: return "I";
+                case KeyType.Trigger: return "T";
+                case KeyType.Narrative: return "N";
+                default: return "?";
+            }
         }
     }
 }

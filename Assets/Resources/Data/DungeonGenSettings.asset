@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: DungeonGenSettings
   m_EditorClassIdentifier: Assembly-CSharp::DunGen.DungeonGenerationSettings
   maxRewriteDepth: 1
-  maxRewritesPerCycle: 1
+  maxRewritesPerCycle: 2
   rewriteProbability: 0.7
   selectionMode: 0
   seed: 0

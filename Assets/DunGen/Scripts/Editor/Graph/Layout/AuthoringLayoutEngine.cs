@@ -6,7 +6,6 @@ namespace DunGen.Editor
     /// <summary>
     /// Constraint-based hierarchical layout engine.
     /// Uses declarative positioning rules and automatic overlap resolution.
-    /// UPDATED: Positions subcycles outside parent circles with aligned entrances to minimize edge crossings.
     /// </summary>
     public sealed class AuthoringLayoutEngine
     {

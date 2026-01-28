@@ -99,8 +99,8 @@ namespace DunGen
                         {
                             label = oldNode.label,
                             grantedKeys = oldNode.grantedKeys != null
-                                ? new System.Collections.Generic.List<int>(oldNode.grantedKeys)
-                                : new System.Collections.Generic.List<int>()
+                                ? new System.Collections.Generic.List<KeyIdentity>(oldNode.grantedKeys)
+                                : new System.Collections.Generic.List<KeyIdentity>()
                         };
 
                         if (oldNode.roles != null)

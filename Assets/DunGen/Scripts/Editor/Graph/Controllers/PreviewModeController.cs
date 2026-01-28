@@ -11,9 +11,11 @@ namespace DunGen.Editor
         private PreviewLayoutEngine.Result _layout;
         private float _nodeRadius;
         private GraphNode _selectedNode;
+        private GraphEdge _selectedEdge;
         private int _currentSeed;
 
-        public GraphNode SelectedNode => _selectedNode;
+        public GraphNode SelectedNode => _selectedNode; 
+        public GraphEdge SelectedEdge => _selectedEdge;
         public int CurrentSeed => _currentSeed;
         public PreviewLayoutEngine.Result Layout => _layout;
 
@@ -57,10 +59,32 @@ namespace DunGen.Editor
 
         public void HandleInput(Event e, Vector2 mousePos, Rect canvasRect, CameraController camera)
         {
-            // Left mouse button - Select node (read-only)
+            // Left mouse button - Select node or edge (read-only)
             if (e.type == EventType.MouseDown && e.button == 0)
             {
-                _selectedNode = HitTestNode(mousePos, canvasRect, camera);
+                // Try node first
+                var hitNode = HitTestNode(mousePos, canvasRect, camera);
+                if (hitNode != null)
+                {
+                    _selectedNode = hitNode;
+                    _selectedEdge = null; // Clear edge selection
+                    e.Use();
+                    return;
+                }
+
+                // Try edge
+                var hitEdge = HitTestEdge(mousePos, canvasRect, camera);
+                if (hitEdge != null)
+                {
+                    _selectedEdge = hitEdge;
+                    _selectedNode = null; // Clear node selection
+                    e.Use();
+                    return;
+                }
+
+                // Clicked empty space - clear all selections
+                _selectedNode = null;
+                _selectedEdge = null;
                 e.Use();
             }
         }
@@ -117,6 +141,57 @@ namespace DunGen.Editor
             }
 
             return null;
+        }
+
+        private GraphEdge HitTestEdge(Vector2 screenPos, Rect canvasRect, CameraController camera)
+        {
+            if (_flatGraph == null || _flatGraph.edges == null)
+                return null;
+
+            float tolerance = 8f; // Pixels
+            GraphEdge closestEdge = null;
+            float closestDist = tolerance;
+
+            foreach (var edge in _flatGraph.edges)
+            {
+                if (edge == null || edge.from == null || edge.to == null)
+                    continue;
+
+                if (!_autoPositions.TryGetValue(edge.from, out Vector2 fromWorld))
+                    continue;
+                if (!_autoPositions.TryGetValue(edge.to, out Vector2 toWorld))
+                    continue;
+
+                // Convert to screen space
+                Vector2 fromScreen = camera.WorldToScreen(fromWorld, canvasRect);
+                Vector2 toScreen = camera.WorldToScreen(toWorld, canvasRect);
+
+                // Calculate distance from point to line segment
+                float dist = DistanceToLineSegment(screenPos, fromScreen, toScreen);
+
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestEdge = edge;
+                }
+            }
+
+            return closestEdge;
+        }
+
+        private float DistanceToLineSegment(Vector2 point, Vector2 lineStart, Vector2 lineEnd)
+        {
+            Vector2 line = lineEnd - lineStart;
+            float lineLength = line.magnitude;
+
+            if (lineLength < 0.001f)
+                return Vector2.Distance(point, lineStart);
+
+            // Project point onto line
+            float t = Mathf.Clamp01(Vector2.Dot(point - lineStart, line) / (lineLength * lineLength));
+            Vector2 projection = lineStart + t * line;
+
+            return Vector2.Distance(point, projection);
         }
     }
 }

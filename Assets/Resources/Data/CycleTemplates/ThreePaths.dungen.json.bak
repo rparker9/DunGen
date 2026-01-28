@@ -1,11 +1,11 @@
 {
-    "version": 2,
+    "version": 1,
     "metadata": {
-        "name": "TwoKeys.dungen",
+        "name": "ThreePaths.dungen",
         "description": "",
-        "guid": "TwoKeys.dungen",
-        "createdTimestamp": 1769472423,
-        "modifiedTimestamp": 1769472423
+        "guid": "ThreePaths.dungen",
+        "createdTimestamp": 1769323876,
+        "modifiedTimestamp": 1769323876
     },
     "cycle": {
         "nodes": [
@@ -28,38 +28,18 @@
             {
                 "guid": "Node 2_2",
                 "label": "Node 2",
-                "roles": [],
-                "grantedKeys": [
-                    {
-                        "globalId": "red_key",
-                        "displayName": "RedKey",
-                        "type": "Hard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
-                ]
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
             },
             {
                 "guid": "Node 3_3",
                 "label": "Node 3",
-                "roles": [],
-                "grantedKeys": [
-                    {
-                        "globalId": "red_key",
-                        "displayName": "Red Key",
-                        "type": "Hard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
-                ]
+                "roles": [
+                    "RewriteSite"
+                ],
+                "grantedKeys": []
             },
             {
                 "guid": "Node 4_4",
@@ -72,26 +52,23 @@
         ],
         "edges": [
             {
+                "fromGuid": "Node 0_0",
+                "toGuid": "Node 2_2",
+                "bidirectional": true,
+                "isBlocked": false,
+                "hasSightline": false,
+                "requiredKeys": []
+            },
+            {
                 "fromGuid": "Node 2_2",
                 "toGuid": "Node 1_1",
                 "bidirectional": true,
                 "isBlocked": false,
                 "hasSightline": false,
-                "requiredKeys": [
-                    {
-                        "requiredKeyId": "red_key",
-                        "type": "Standard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.21568627655506135,
-                            "b": 0.20000000298023225,
-                            "a": 1.0
-                        }
-                    }
-                ]
+                "requiredKeys": []
             },
             {
-                "fromGuid": "Node 0_0",
+                "fromGuid": "Node 1_1",
                 "toGuid": "Node 3_3",
                 "bidirectional": true,
                 "isBlocked": false,
@@ -100,22 +77,11 @@
             },
             {
                 "fromGuid": "Node 3_3",
-                "toGuid": "Node 1_1",
+                "toGuid": "Node 0_0",
                 "bidirectional": true,
                 "isBlocked": false,
                 "hasSightline": false,
-                "requiredKeys": [
-                    {
-                        "requiredKeyId": "red_key",
-                        "type": "Standard",
-                        "color": {
-                            "r": 0.9490196108818054,
-                            "g": 0.2140895426273346,
-                            "b": 0.19999998807907105,
-                            "a": 1.0
-                        }
-                    }
-                ]
+                "requiredKeys": []
             },
             {
                 "fromGuid": "Node 0_0",
@@ -127,7 +93,7 @@
             },
             {
                 "fromGuid": "Node 4_4",
-                "toGuid": "Node 2_2",
+                "toGuid": "Node 1_1",
                 "bidirectional": true,
                 "isBlocked": false,
                 "hasSightline": false,
@@ -136,6 +102,14 @@
         ],
         "rewriteSites": [
             {
+                "placeholderGuid": "Node 2_2",
+                "replacementTemplateGuid": ""
+            },
+            {
+                "placeholderGuid": "Node 3_3",
+                "replacementTemplateGuid": ""
+            },
+            {
                 "placeholderGuid": "Node 4_4",
                 "replacementTemplateGuid": ""
             }
@@ -143,28 +117,28 @@
         "positions": [
             {
                 "nodeGuid": "Node 0_0",
-                "x": -130.12168884277345,
-                "y": 9.652868270874024
+                "x": -99.0,
+                "y": -0.5
             },
             {
                 "nodeGuid": "Node 1_1",
-                "x": 147.03805541992188,
-                "y": 5.955083847045898
+                "x": 100.0,
+                "y": 0.5
             },
             {
                 "nodeGuid": "Node 2_2",
-                "x": 75.28924560546875,
-                "y": 148.8497772216797
+                "x": -3.3598132133483888,
+                "y": -0.4813084602355957
             },
             {
                 "nodeGuid": "Node 3_3",
-                "x": 10.172683715820313,
-                "y": -92.32270050048828
+                "x": -5.0,
+                "y": -99.5
             },
             {
                 "nodeGuid": "Node 4_4",
-                "x": -72.42888641357422,
-                "y": 142.217529296875
+                "x": -0.6028037071228027,
+                "y": 91.05140686035156
             }
         ],
         "startNodeIndex": 0,

@@ -169,7 +169,9 @@ namespace DunGen.Editor
             // Draw graph (edges + nodes)
             if (_templateGraph != null && _nodePositions.Count > 0)
             {
-                _renderer.DrawEdges(_templateGraph, _nodePositions, canvasRect, _camera, _styleProvider);
+                // FIXED: Pass selected edge for highlighting
+                _renderer.DrawEdges(_templateGraph, _nodePositions, canvasRect, _camera, _styleProvider,
+                    _authorController.SelectedEdge);
                 _renderer.DrawNodes(_templateGraph, _nodePositions, canvasRect, _camera, _styleProvider,
                     currentTemplate, _authorController.SelectedNode);
             }

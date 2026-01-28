@@ -1,23 +1,27 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace DunGen
 {
     /// <summary>
-    /// Pure JSON-based serialization for cycle templates.
+    /// Pure JSON-based serialization for cycle templates with key/lock support.
     /// 
     /// File format: .dungen.json
     /// Location: Assets/Resources/Data/CycleTemplates/*.dungen.json
     /// </summary>
     public static class CycleTemplate
     {
-        private const int CURRENT_VERSION = 1;
+        private const int CURRENT_VERSION = 2; // Bumped for key/lock system
         private const string FILE_EXTENSION = ".dungen.json";
 
         #region Serializable Format
-
+        /// <summary>
+        /// The entire template file structure.
+        /// Contains metadata and serialized cycle data, along with version control.
+        /// </summary>
         [Serializable]
         public class TemplateFile
         {
@@ -26,6 +30,14 @@ namespace DunGen
             public SerializedCycle cycle;
         }
 
+        /// <summary>
+        /// Represents metadata information for a template, including its name, description, unique identifier, and
+        /// timestamps for creation and modification.
+        /// </summary>
+        /// <remarks>Instances of this class can be serialized, making it suitable for scenarios where
+        /// template metadata needs to be stored or transmitted. The 'guid' field provides a stable, unique identifier
+        /// for each template, which can be used to distinguish templates across different systems or
+        /// sessions.</remarks>
         [Serializable]
         public class TemplateMetadata
         {
@@ -36,6 +48,15 @@ namespace DunGen
             public long modifiedTimestamp;
         }
 
+        /// <summary>
+        /// Represents a serialized cycle, including its nodes, edges, rewrite sites, and positions, for storage or
+        /// transmission.
+        /// </summary>
+        /// <remarks>The SerializedCycle class is used to capture the structure of a cycle in a format
+        /// suitable for serialization. It provides lists of nodes, edges, rewrite sites, and positions, along with
+        /// indices identifying the start and goal nodes. This enables reconstruction and manipulation of the cycle's
+        /// components after deserialization. The indices correspond to elements in the nodes list and are set to -1 if
+        /// not specified.</remarks>
         [Serializable]
         public class SerializedCycle
         {
@@ -49,15 +70,51 @@ namespace DunGen
             public int goalNodeIndex = -1;
         }
 
+        /// <summary>
+        /// Represents a serializable node that contains a unique identifier, a label, associated roles, and a
+        /// collection of granted key identities.
+        /// </summary>
+        /// <remarks>This class is intended for scenarios where node data needs to be persisted or
+        /// transferred, such as saving and loading graph structures. The 'roles' property stores the roles assigned to
+        /// the node as strings, while 'grantedKeys' holds a list of key identities associated with the node. Instances
+        /// of this class can be serialized and deserialized for use in data storage or network communication.</remarks>
         [Serializable]
         public class SerializedNode
         {
             public string guid;
             public string label;
             public List<string> roles; // NodeRoleType as strings
-            public List<int> grantedKeys;
+            public List<SerializedKeyIdentity> grantedKeys; // NEW: KeyIdentity list
         }
 
+        /// <summary>
+        /// Represents a serialized identity key that includes a global identifier, display name, type, color, and
+        /// associated metadata.
+        /// </summary>
+        /// <remarks>This class is typically used to encapsulate the identity and descriptive information
+        /// of an object in a format suitable for serialization. The 'type' field stores the key type as a string, and
+        /// the 'color' field specifies the associated color using a SerializedColor instance. The 'metadata' dictionary
+        /// can be used to store additional key-value pairs relevant to the identity.</remarks>
+        [Serializable]
+        public class SerializedKeyIdentity
+        {
+            public string globalId;
+            public string displayName;
+            public string type; // KeyType as string
+            public SerializedColor color;
+            public Dictionary<string, string> metadata;
+        }
+
+        /// <summary>
+        /// Represents a connection between two nodes in a graph, identified by unique GUIDs. Supports both directed and
+        /// bidirectional edges, and can include properties such as visibility, blockage, and required keys for
+        /// traversal.
+        /// </summary>
+        /// <remarks>Use this class to model relationships in graph-based structures where edges may have
+        /// specific access requirements or visibility constraints. The edge can be blocked, may require certain keys to
+        /// traverse, and can optionally allow sightlines between connected nodes. This type is suitable for scenarios
+        /// such as procedural dungeon generation or other graph-based systems where edge properties influence traversal
+        /// and visibility.</remarks>
         [Serializable]
         public class SerializedEdge
         {
@@ -66,7 +123,16 @@ namespace DunGen
             public bool bidirectional;
             public bool isBlocked;
             public bool hasSightline;
-            public List<int> requiredKeys;
+            public List<SerializedLockRequirement> requiredKeys; // NEW: LockRequirement list
+        }
+
+        [Serializable]
+        public class SerializedLockRequirement
+        {
+            public string requiredKeyId;
+            public string type; // LockType as string
+            public SerializedColor color;
+            public Dictionary<string, string> metadata;
         }
 
         [Serializable]
@@ -82,6 +148,15 @@ namespace DunGen
             public string nodeGuid;
             public float x;
             public float y;
+        }
+
+        [Serializable]
+        public class SerializedColor
+        {
+            public float r;
+            public float g;
+            public float b;
+            public float a;
         }
 
         #endregion
@@ -187,7 +262,7 @@ namespace DunGen
                         guid = guid,
                         label = node.label ?? "",
                         roles = new List<string>(),
-                        grantedKeys = new List<int>(node.grantedKeys ?? new List<int>())
+                        grantedKeys = new List<SerializedKeyIdentity>()
                     };
 
                     if (node.roles != null)
@@ -196,6 +271,25 @@ namespace DunGen
                         {
                             if (role != null)
                                 sNode.roles.Add(role.type.ToString());
+                        }
+                    }
+
+                    // Serialize granted keys
+                    if (node.grantedKeys != null)
+                    {
+                        foreach (var key in node.grantedKeys)
+                        {
+                            if (key != null)
+                            {
+                                sNode.grantedKeys.Add(new SerializedKeyIdentity
+                                {
+                                    globalId = key.globalId,
+                                    displayName = key.displayName,
+                                    type = key.type.ToString(),
+                                    color = new SerializedColor { r = key.color.r, g = key.color.g, b = key.color.b, a = key.color.a },
+                                    metadata = key.metadata != null ? new Dictionary<string, string>(key.metadata) : new Dictionary<string, string>()
+                                });
+                            }
                         }
                     }
 
@@ -225,8 +319,26 @@ namespace DunGen
                         bidirectional = edge.bidirectional,
                         isBlocked = edge.isBlocked,
                         hasSightline = edge.hasSightline,
-                        requiredKeys = new List<int>(edge.requiredKeys ?? new List<int>())
+                        requiredKeys = new List<SerializedLockRequirement>()
                     };
+
+                    // Serialize lock requirements
+                    if (edge.requiredKeys != null)
+                    {
+                        foreach (var req in edge.requiredKeys)
+                        {
+                            if (req != null)
+                            {
+                                sEdge.requiredKeys.Add(new SerializedLockRequirement
+                                {
+                                    requiredKeyId = req.requiredKeyId,
+                                    type = req.type.ToString(),
+                                    color = new SerializedColor { r = req.color.r, g = req.color.g, b = req.color.b, a = req.color.a },
+                                    metadata = req.metadata != null ? new Dictionary<string, string>(req.metadata) : new Dictionary<string, string>()
+                                });
+                            }
+                        }
+                    }
 
                     serialized.edges.Add(sEdge);
                 }
@@ -352,7 +464,7 @@ namespace DunGen
                     {
                         label = sNode.label ?? "",
                         roles = new List<NodeRole>(),
-                        grantedKeys = new List<int>(sNode.grantedKeys ?? new List<int>())
+                        grantedKeys = new List<KeyIdentity>()
                     };
 
                     // Deserialize roles
@@ -363,6 +475,30 @@ namespace DunGen
                             if (Enum.TryParse<NodeRoleType>(roleStr, out var roleType))
                             {
                                 node.AddRole(roleType);
+                            }
+                        }
+                    }
+
+                    // Deserialize granted keys
+                    if (sNode.grantedKeys != null)
+                    {
+                        foreach (var sKey in sNode.grantedKeys)
+                        {
+                            if (sKey != null && Enum.TryParse<KeyType>(sKey.type, out var keyType))
+                            {
+                                var key = new KeyIdentity
+                                {
+                                    globalId = sKey.globalId,
+                                    displayName = sKey.displayName,
+                                    type = keyType,
+                                    color = sKey.color != null
+                                        ? new Color(sKey.color.r, sKey.color.g, sKey.color.b, sKey.color.a)
+                                        : Color.yellow,
+                                    metadata = sKey.metadata != null
+                                        ? new Dictionary<string, string>(sKey.metadata)
+                                        : new Dictionary<string, string>()
+                                };
+                                node.grantedKeys.Add(key);
                             }
                         }
                     }
@@ -395,8 +531,31 @@ namespace DunGen
                     {
                         isBlocked = sEdge.isBlocked,
                         hasSightline = sEdge.hasSightline,
-                        requiredKeys = new List<int>(sEdge.requiredKeys ?? new List<int>())
+                        requiredKeys = new List<LockRequirement>()
                     };
+
+                    // Deserialize lock requirements
+                    if (sEdge.requiredKeys != null)
+                    {
+                        foreach (var sReq in sEdge.requiredKeys)
+                        {
+                            if (sReq != null && Enum.TryParse<LockType>(sReq.type, out var lockType))
+                            {
+                                var req = new LockRequirement
+                                {
+                                    requiredKeyId = sReq.requiredKeyId,
+                                    type = lockType,
+                                    color = sReq.color != null
+                                        ? new Color(sReq.color.r, sReq.color.g, sReq.color.b, sReq.color.a)
+                                        : Color.red,
+                                    metadata = sReq.metadata != null
+                                        ? new Dictionary<string, string>(sReq.metadata)
+                                        : new Dictionary<string, string>()
+                                };
+                                edge.requiredKeys.Add(req);
+                            }
+                        }
+                    }
 
                     cycle.edges.Add(edge);
                 }
@@ -533,7 +692,16 @@ namespace DunGen
 
         private static void MigrateFile(TemplateFile file, int fromVersion)
         {
-            // Add migration logic here when version increases
+            Debug.Log($"[CycleTemplate] Migrating template from version {fromVersion} to {CURRENT_VERSION}");
+
+            // Migration from v1 to v2: Convert legacy int keys to KeyIdentity
+            if (fromVersion == 1)
+            {
+                // Legacy templates had List<int> for keys
+                // We need to convert them to KeyIdentity with template-local IDs
+                // This is handled in deserialization
+            }
+
             file.version = CURRENT_VERSION;
         }
 

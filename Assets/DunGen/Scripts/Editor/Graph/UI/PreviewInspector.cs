@@ -1,14 +1,17 @@
-﻿using UnityEditor;
+﻿using System.Linq;
+using UnityEditor;
 using UnityEngine;
 
 namespace DunGen.Editor
 {
     /// <summary>
     /// Inspector panel for preview mode.
-    /// Displays hierarchical graph statistics and selected node information.
+    /// Shows stats about the generated dungeon and selected nodes.
+    /// UPDATED: Displays KeyRegistry information.
     /// </summary>
     public sealed class PreviewInspector
     {
+        private Vector2 _scrollPos;
         private NodeStyleProvider _styleProvider;
 
         public PreviewInspector(NodeStyleProvider styleProvider)
@@ -18,230 +21,233 @@ namespace DunGen.Editor
 
         public void DrawInspector(
             Rect rect,
-            PreviewLayoutEngine.Result layout,
-            FlatGraph flatGraph,
+            PreviewLayoutEngine.Result layoutResult,
+            FlatGraph graph,
             GraphNode selectedNode,
-            DungeonCycle generatedCycle,
-            int currentSeed)
-
+            GraphEdge selectedEdge,
+            DungeonCycle rootCycle,
+            int seed,
+            KeyRegistry keyRegistry)
         {
             GUILayout.BeginArea(rect);
 
             EditorGUILayout.LabelField("Preview Inspector", EditorStyles.boldLabel);
             EditorGUILayout.Space();
 
-            // Generation info
-            EditorGUILayout.LabelField("Generation", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Seed:", currentSeed.ToString());
-            EditorGUILayout.Space();
+            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
 
-            // Planar layout stats
-            if (layout != null)
-            {
-                EditorGUILayout.LabelField("Layout", EditorStyles.boldLabel);
-
-                if (flatGraph == null)
-                {
-                    EditorGUILayout.LabelField("Graph:", "(none)");
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("Nodes:", flatGraph.NodeCount.ToString());
-                    EditorGUILayout.LabelField("Edges:", flatGraph.EdgeCount.ToString());
-                }
-
-                EditorGUILayout.LabelField("Planar:", layout.isPlanar ? "Yes" : "No");
-
-                if (!string.IsNullOrEmpty(layout.warning))
-                    EditorGUILayout.HelpBox(layout.warning, layout.isPlanar ? MessageType.Info : MessageType.Warning);
-
-                EditorGUILayout.Space();
-            }
-
-            // Selected node info
             if (selectedNode != null)
             {
-                DrawSelectedNodeInfo(selectedNode, generatedCycle, flatGraph);
+                DrawNodeInspector(selectedNode, rootCycle);
             }
-            else if (generatedCycle != null)
+            else if (selectedEdge != null)
             {
-                DrawOverallCycleInfo(generatedCycle);
+                DrawEdgeInspector(selectedEdge, graph);
+            }
+            else
+            {
+                DrawDungeonStats(graph, layoutResult, seed, keyRegistry);
             }
 
-            EditorGUILayout.Space();
-            DrawControls();
+            EditorGUILayout.EndScrollView();
 
             GUILayout.EndArea();
         }
 
         // =========================================================
-        // LAYOUT STATISTICS
+        // DUNGEON STATS
         // =========================================================
 
-        private void DrawLayoutStats(PreviewLayoutEngine.Result layoutResult)
+        private void DrawDungeonStats(FlatGraph graph, PreviewLayoutEngine.Result layoutResult, int seed, KeyRegistry keyRegistry)
         {
-           
+            EditorGUILayout.LabelField("Dungeon Overview", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+
+            EditorGUILayout.LabelField("Seed:", seed.ToString());
+            EditorGUILayout.Space();
+
+            if (graph != null)
+            {
+                EditorGUILayout.LabelField("Nodes:", graph.NodeCount.ToString());
+                EditorGUILayout.LabelField("Edges:", graph.EdgeCount.ToString());
+
+                // Key stats
+                if (keyRegistry != null)
+                {
+                    EditorGUILayout.Space();
+                    EditorGUILayout.LabelField("Keys:", EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField("Total Unique Keys:", keyRegistry.KeyCount.ToString());
+
+                    var allKeys = keyRegistry.GetAllKeys();
+                    if (allKeys != null && allKeys.Count > 0)
+                    {
+                        // Count by type
+                        var hardKeys = allKeys.Count(k => k.type == KeyType.Hard);
+                        var softKeys = allKeys.Count(k => k.type == KeyType.Soft);
+                        var abilityKeys = allKeys.Count(k => k.type == KeyType.Ability);
+                        var itemKeys = allKeys.Count(k => k.type == KeyType.Item);
+                        var triggerKeys = allKeys.Count(k => k.type == KeyType.Trigger);
+                        var narrativeKeys = allKeys.Count(k => k.type == KeyType.Narrative);
+
+                        using (new EditorGUI.IndentLevelScope())
+                        {
+                            if (hardKeys > 0) EditorGUILayout.LabelField($"Hard: {hardKeys}");
+                            if (softKeys > 0) EditorGUILayout.LabelField($"Soft: {softKeys}");
+                            if (abilityKeys > 0) EditorGUILayout.LabelField($"Ability: {abilityKeys}");
+                            if (itemKeys > 0) EditorGUILayout.LabelField($"Item: {itemKeys}");
+                            if (triggerKeys > 0) EditorGUILayout.LabelField($"Trigger: {triggerKeys}");
+                            if (narrativeKeys > 0) EditorGUILayout.LabelField($"Narrative: {narrativeKeys}");
+                        }
+                    }
+                }
+
+                // Lock stats
+                int totalLocks = 0;
+                if (graph.edges != null)
+                {
+                    foreach (var edge in graph.edges)
+                    {
+                        if (edge?.requiredKeys != null)
+                            totalLocks += edge.requiredKeys.Count;
+                    }
+                }
+
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Locks:", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Total Locks:", totalLocks.ToString());
+            }
+
+            if (layoutResult != null)
+            {
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Layout:", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Planar:", layoutResult.isPlanar ? "Yes" : "No");
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.HelpBox(
+                "Controls:\n" +
+                "• Mouse wheel: Zoom\n" +
+                "• Middle mouse: Pan\n" +
+                "• Click node: Select",
+                MessageType.Info
+            );
         }
 
         // =========================================================
-        // SELECTED NODE
+        // NODE INSPECTOR
         // =========================================================
 
-        private void DrawSelectedNodeInfo(
-            GraphNode selectedNode,
-            DungeonCycle generatedCycle,
-            FlatGraph flatGraph)
+        private void DrawNodeInspector(GraphNode node, DungeonCycle rootCycle)
         {
             EditorGUILayout.LabelField("Selected Node", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
 
-            // Node label
-            string displayLabel = selectedNode.label;
-            if (string.IsNullOrEmpty(displayLabel))
-                displayLabel = "(unnamed)";
-            EditorGUILayout.LabelField("Label:", displayLabel);
+            EditorGUILayout.LabelField("Label:", node.label);
 
-            // Roles
-            if (selectedNode.roles != null && selectedNode.roles.Count > 0)
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Roles:", EditorStyles.boldLabel);
+
+            if (node.roles == null || node.roles.Count == 0)
             {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Roles:", EditorStyles.boldLabel);
-                foreach (var role in selectedNode.roles)
+                EditorGUILayout.LabelField("(none)");
+            }
+            else
+            {
+                foreach (var role in node.roles)
                 {
                     if (role != null)
-                        EditorGUILayout.LabelField("  • " + role.type.ToString());
+                        EditorGUILayout.LabelField($"• {role.type}");
                 }
             }
 
-            // Keys granted
-            if (selectedNode.GrantsAnyKey())
-            {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Keys Granted:", EditorStyles.boldLabel);
-                foreach (var keyId in selectedNode.grantedKeys)
-                    EditorGUILayout.LabelField($"  • Key {keyId}");
-            }
-
-            // Connected edges
+            // Granted keys
             EditorGUILayout.Space();
-            DrawConnectedEdges(selectedNode, flatGraph);
-        }
+            EditorGUILayout.LabelField("Granted Keys:", EditorStyles.boldLabel);
 
-        private void DrawConnectedEdges(GraphNode selectedNode, FlatGraph flatGraph)
-        {
-            EditorGUILayout.LabelField("Connected Edges:", EditorStyles.boldLabel);
-
-            if (flatGraph?.edges == null)
+            if (node.grantedKeys == null || node.grantedKeys.Count == 0)
             {
                 EditorGUILayout.LabelField("(none)");
-                return;
             }
-
-            int edgeCount = 0;
-
-            foreach (var edge in flatGraph.edges)
+            else
             {
-                if (edge == null) continue;
-
-                bool isOutgoing = edge.from == selectedNode;
-                bool isIncoming = edge.to == selectedNode;
-                if (!isOutgoing && !isIncoming) continue;
-
-                edgeCount++;
-
-                string direction = isOutgoing ? "->" : "<-";
-                GraphNode otherNode = isOutgoing ? edge.to : edge.from;
-                string otherLabel = otherNode?.label ?? "(unnamed)";
-                string edgeDesc = $"{direction} {otherLabel}";
-
-                var properties = new System.Collections.Generic.List<string>();
-                if (edge.bidirectional) properties.Add("<->");
-                if (edge.isBlocked) properties.Add("BLOCKED");
-                if (edge.hasSightline) properties.Add("SIGHT");
-                if (edge.RequiresAnyKey())
+                foreach (var key in node.grantedKeys)
                 {
-                    string keys = string.Join(",", edge.requiredKeys);
-                    properties.Add($"Reqd Keys: {keys}");
-                }
+                    if (key == null) continue;
 
-                if (properties.Count > 0)
-                    edgeDesc += $" ({string.Join(", ", properties)})";
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        var prevColor = GUI.backgroundColor;
+                        GUI.backgroundColor = key.color;
+                        GUILayout.Box("", GUILayout.Width(16), GUILayout.Height(16));
+                        GUI.backgroundColor = prevColor;
 
-                EditorGUILayout.LabelField("  • " + edgeDesc);
-            }
-
-            if (edgeCount == 0)
-                EditorGUILayout.LabelField("(none)");
-        }
-
-        // =========================================================
-        // OVERALL CYCLE INFO
-        // =========================================================
-
-        private void DrawOverallCycleInfo(DungeonCycle generatedCycle)
-        {
-            EditorGUILayout.LabelField("Generated Dungeon", EditorStyles.boldLabel);
-
-            if (generatedCycle != null)
-            {
-                int totalNodes = CountNodesRecursive(generatedCycle);
-                int totalCycles = CountCyclesRecursive(generatedCycle);
-
-                EditorGUILayout.LabelField("Root Nodes:", generatedCycle.nodes?.Count.ToString() ?? "0");
-                EditorGUILayout.LabelField("Total Nodes:", totalNodes.ToString());
-                EditorGUILayout.LabelField("Total Cycles:", totalCycles.ToString());
-
-                if (generatedCycle.startNode != null)
-                    EditorGUILayout.LabelField("Start Node:", generatedCycle.startNode.label ?? "(unnamed)");
-                if (generatedCycle.goalNode != null)
-                    EditorGUILayout.LabelField("Goal Node:", generatedCycle.goalNode.label ?? "(unnamed)");
-            }
-        }
-
-        private int CountNodesRecursive(DungeonCycle cycle)
-        {
-            if (cycle == null) return 0;
-
-            int count = cycle.nodes?.Count ?? 0;
-
-            if (cycle.rewriteSites != null)
-            {
-                foreach (var site in cycle.rewriteSites)
-                {
-                    if (site?.replacementPattern != null)
-                        count += CountNodesRecursive(site.replacementPattern);
+                        EditorGUILayout.LabelField($"{key.displayName} ({key.type})");
+                    }
                 }
             }
 
-            return count;
-        }
-
-        private int CountCyclesRecursive(DungeonCycle cycle)
-        {
-            if (cycle == null) return 0;
-
-            int count = 1; // This cycle
-
-            if (cycle.rewriteSites != null)
-            {
-                foreach (var site in cycle.rewriteSites)
-                {
-                    if (site?.replacementPattern != null)
-                        count += CountCyclesRecursive(site.replacementPattern);
-                }
-            }
-
-            return count;
-        }
-
-        // =========================================================
-        // CONTROLS
-        // =========================================================
-
-        private void DrawControls()
-        {
-            EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
             EditorGUILayout.HelpBox(
-                "• MMB drag: Pan\n• Scroll: Zoom\n• LMB: Select node\n\nColors:\n• Green = Start/Entrance\n• Red = Goal/Exit\n• Blue = Normal node\n• Yellow = Selected",
+                "Click a different node to inspect it, or click empty space to see dungeon stats.",
+                MessageType.Info
+            );
+        }
+
+        // =========================================================
+        // EDGE INSPECTOR
+        // =========================================================
+
+        private void DrawEdgeInspector(GraphEdge edge, FlatGraph graph)
+        {
+            EditorGUILayout.LabelField("Selected Edge", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+
+            // Connection info
+            EditorGUILayout.LabelField("Connection:", EditorStyles.boldLabel);
+            string fromLabel = edge.from?.label ?? "(unknown)";
+            string toLabel = edge.to?.label ?? "(unknown)";
+            EditorGUILayout.LabelField($"From: {fromLabel}");
+            EditorGUILayout.LabelField($"To: {toLabel}");
+
+            EditorGUILayout.Space();
+
+            // Properties
+            EditorGUILayout.LabelField("Properties:", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Bidirectional: {(edge.bidirectional ? "Yes" : "No")}");
+            EditorGUILayout.LabelField($"Blocked: {(edge.isBlocked ? "Yes" : "No")}");
+            EditorGUILayout.LabelField($"Has Sightline: {(edge.hasSightline ? "Yes" : "No")}");
+
+            EditorGUILayout.Space();
+
+            // Lock requirements
+            EditorGUILayout.LabelField("Lock Requirements:", EditorStyles.boldLabel);
+
+            if (edge.requiredKeys == null || edge.requiredKeys.Count == 0)
+            {
+                EditorGUILayout.LabelField("(none - freely traversable)");
+            }
+            else
+            {
+                foreach (var req in edge.requiredKeys)
+                {
+                    if (req == null) continue;
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        var prevColor = GUI.backgroundColor;
+                        GUI.backgroundColor = req.color;
+                        GUILayout.Box("", GUILayout.Width(16), GUILayout.Height(16));
+                        GUI.backgroundColor = prevColor;
+
+                        EditorGUILayout.LabelField($"Requires: {req.requiredKeyId} ({req.type})");
+                    }
+                }
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.HelpBox(
+                "Click a node or different edge to inspect it, or click empty space to see dungeon stats.",
                 MessageType.Info
             );
         }

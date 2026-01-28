@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DunGen
 {
+    /// <summary>
+    /// Represents an edge/connection between two graph nodes.
+    /// </summary>
     [Serializable]
     public sealed class GraphEdge
     {
@@ -13,7 +17,7 @@ namespace DunGen
         public bool hasSightline;
 
         // LOCKS: Keys required to traverse this edge
-        public List<int> requiredKeys;
+        public List<LockRequirement> requiredKeys;
 
         public GraphEdge(GraphNode from, GraphNode to, bool bidirectional = true, bool isBlocked = false, bool hasSightline = false)
         {
@@ -22,13 +26,14 @@ namespace DunGen
             this.bidirectional = bidirectional;
             this.isBlocked = isBlocked;
             this.hasSightline = hasSightline;
-            this.requiredKeys = new List<int>();
+            this.requiredKeys = new List<LockRequirement>();
         }
 
-        // Convenience methods for locks
-        public bool RequiresKey(int keyId)
+        // --------------- Key Helpers ---------------
+
+        public bool RequiresKey(string keyId)
         {
-            return requiredKeys != null && requiredKeys.Contains(keyId);
+            return requiredKeys != null && requiredKeys.Any(r => r != null && r.requiredKeyId == keyId);
         }
 
         public bool RequiresAnyKey()
@@ -36,25 +41,40 @@ namespace DunGen
             return requiredKeys != null && requiredKeys.Count > 0;
         }
 
-        public void AddRequiredKey(int keyId)
+        public void AddRequiredKey(LockRequirement requirement)
         {
             if (requiredKeys == null)
-                requiredKeys = new List<int>();
+                requiredKeys = new List<LockRequirement>();
 
-            if (!requiredKeys.Contains(keyId))
-                requiredKeys.Add(keyId);
+            if (requirement != null && !requiredKeys.Any(r => r != null && r.requiredKeyId == requirement.requiredKeyId))
+                requiredKeys.Add(requirement);
         }
 
-        public void RemoveRequiredKey(int keyId)
+        public void RemoveRequiredKey(string keyId)
         {
             if (requiredKeys != null)
-                requiredKeys.Remove(keyId);
+                requiredKeys.RemoveAll(r => r != null && r.requiredKeyId == keyId);
         }
 
         public void ClearRequiredKeys()
         {
             if (requiredKeys != null)
                 requiredKeys.Clear();
+        }
+
+        // --------------- Backward Compatibility ---------------
+
+        /// <summary>
+        /// Add lock from legacy int key ID (for migration from old templates)
+        /// </summary>
+        public void AddRequiredKey(int legacyKeyId)
+        {
+            var requirement = new LockRequirement
+            {
+                requiredKeyId = $"legacy_key_{legacyKeyId}",
+                type = LockType.Standard
+            };
+            AddRequiredKey(requirement);
         }
     }
 }

